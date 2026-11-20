@@ -24,14 +24,23 @@ import java.util.WeakHashMap
 @Composable
 internal actual fun protectFromScreenCapture(blockCapture: Boolean): Boolean {
     val view = LocalView.current
-    // Inside a dialog the window to protect is the dialog's own: it does not take a flag set on the activity's
-    // window after it was made (a password field in a dialog, issue #252).
-    val window = remember(view) { (view as? DialogWindowProvider)?.window ?: view.context.findActivity()?.window }
-    DisposableEffect(view, window, blockCapture) {
-        acquire(view, window, blockCapture)
-        onDispose { release(view, window, blockCapture) }
+    val activityWindow = remember(view) { view.context.findActivity()?.window }
+    // Inside a dialog the window to protect is the dialog's own (a password field in a dialog, issue #252). The
+    // dialog's root layout provides it, the parent of the view the dialog's content composes into.
+    val dialogWindow = remember(view) { (view.parent as? DialogWindowProvider)?.window }
+    DisposableEffect(view, dialogWindow, activityWindow, blockCapture) {
+        acquire(view, dialogWindow ?: activityWindow, blockCapture)
+        // And, in a dialog, the activity's window too: Compose's Dialog applies SecureFlagPolicy.Inherit again
+        // whenever its call recomposes, clearing the dialog's flag while the activity's window lacks it. Held on
+        // the activity's decor view, a protection of its own, so the screen's own count is left alone.
+        val activityView = activityWindow?.decorView?.takeIf { dialogWindow != null }
+        activityView?.let { acquire(it, activityWindow, blockCapture) }
+        onDispose {
+            activityView?.let { release(it, activityWindow, blockCapture) }
+            release(view, dialogWindow ?: activityWindow, blockCapture)
+        }
     }
-    return window != null && blockCapture
+    return (dialogWindow ?: activityWindow) != null && blockCapture
 }
 
 /**
