@@ -17,6 +17,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -35,6 +38,15 @@ const val ACTIVITY_ROW_TAG = "activity-row"
 /** Test tag of each card of a swap whose next step waits, for UI tests. */
 const val WAITING_STEP_TAG = "waiting-step"
 
+/** What reads the addr1 index's next page on the user's tap. */
+private const val LOAD_OLDER = "Load older entries"
+
+/** Test tag of the addr1 index's lines above the rows, for UI tests. */
+const val ACTIVITY_INDEX_TAG = "activity-index"
+
+/** Test tag of the addr1 index's footer: loading, more, the end of its coverage or why nothing more comes. */
+const val ACTIVITY_INDEX_FOOTER_TAG = "activity-index-footer"
+
 /**
  * An account's Activity (docs/wallet-ux.md, screen 25) as items of the list it is drawn in, its
  * detail's Activity tab: what the list covers, then each transaction this device sent for it and
@@ -45,6 +57,9 @@ const val WAITING_STEP_TAG = "waiting-step"
  * Dismiss lets it go ([onDismiss]). Before everything, each transfer queued in lenient mode, whose
  * tap opens its status ([onOpen] with its key). One item per row, so that a long history is
  * composed as it scrolls into view. While it is read, ghost rows in the rows' shape hold their room.
+ * Where the addr1 index adds rows ([ActivityUiState.Shown.index]), its lines follow what the list
+ * covers, and its footer the rows: once the list nears its end and the footer is composed, the
+ * next page is asked for ([onMore]), and Try again after a passing refusal asks again.
  */
 fun LazyListScope.activityItems(
     state: ActivityUiState,
@@ -52,6 +67,7 @@ fun LazyListScope.activityItems(
     onContinue: (sell: String) -> Unit = {},
     onDismiss: (sell: String) -> Unit = {},
     continueAvailable: Boolean = true,
+    onMore: () -> Unit = {},
 ) {
     when (state) {
         // What the list covers and a few rows, in their shapes, until it is read: no spinner the rows push down.
@@ -85,11 +101,104 @@ fun LazyListScope.activityItems(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            val index = state.index
+            if (index != null) item(key = "index-lines") { IndexLines(index) }
+            if (index?.footerFirst == true) {
+                item(key = "index-footer") { IndexFooterItem(index.footer, onMore, automatic = false) }
+            }
             if (state.rows.isEmpty()) {
                 item { Text(state.empty, style = MaterialTheme.typography.bodyMedium) }
             }
             items(state.rows, key = { it.key }) { row ->
                 ActivityItem(row, onClick = { onOpen(row.opens) })
+            }
+            if (index != null && !index.footerFirst) {
+                item(key = "index-footer") { IndexFooterItem(index.footer, onMore) }
+            }
+        }
+    }
+}
+
+/**
+ * What the addr1 index adds above the rows: what it is, what it rests on and what it does not cover; then how many
+ * entries it left out, and apart, as a warning, how many the chain contradicts.
+ */
+@Composable
+private fun IndexLines(index: IndexSection) {
+    Column(
+        Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag(ACTIVITY_INDEX_TAG),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        index.lines.forEach {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        index.leftOut?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        index.contradicted?.let {
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Text(
+                    it,
+                    Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The addr1 index's footer: a ghost row while a page is read, which holds its room; nothing to see while more lies
+ * below, but its being composed (the list near its end) asks for the next page ([onMore]); the end of its coverage;
+ * or why nothing more comes, with Try again where asking again may answer. Above the rows ([automatic] false, when
+ * they run oldest first) it is in sight from the start and stays there as pages load below it: more is then read
+ * only on Load older, never by itself.
+ */
+@Composable
+private fun IndexFooterItem(footer: IndexFooter, onMore: () -> Unit, automatic: Boolean = true) {
+    val more by rememberUpdatedState(onMore)
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag(ACTIVITY_INDEX_FOOTER_TAG)) {
+        when (footer) {
+            is IndexFooter.Loading -> {
+                ActivityGhost()
+                Text(
+                    footer.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IndexFooter.More -> if (automatic) {
+                LaunchedEffect(Unit) { more() }
+            } else {
+                TextButton(onClick = onMore) { Text(LOAD_OLDER) }
+            }
+            // The last page added no row: read on only when the user asks.
+            is IndexFooter.Paused -> {
+                Text(
+                    footer.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onMore) { Text(LOAD_OLDER) }
+            }
+            is IndexFooter.End -> Text(
+                footer.text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            is IndexFooter.Refused -> {
+                Text(
+                    footer.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (footer.warning) MaterialTheme.colorScheme.error else Color.Unspecified,
+                )
+                if (footer.retry) {
+                    TextButton(onClick = onMore) { Text("Try again") }
+                }
             }
         }
     }

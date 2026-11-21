@@ -126,7 +126,8 @@ import kotlinx.coroutines.withContext
  * owners ([ObserveSafe]) and the transactions queued for them on this device
  * ([ObserveSafeTxQueue], decoded here, a token transfer's amount in the units of a token the
  * wallet knows: [ObserveKnownTokens]); and its Activity ([AccountActivity]), read only while its
- * tab is shown. Its intents are the order of the rows ([sortBy], and [orderActivity] for the Activity's), the
+ * tab is shown. Its intents are the order of the rows ([sortBy], and [orderActivity] for the Activity's, whose addr1
+ * index's next page [loadMoreActivity] asks for), the
  * segment shown ([show]) and hiding a token
  * ([hideToken], said through [messageShown]); what else the user does from the screen is
  * navigation (Send, Receive, Rename, Remove, a row of its Activity, a queued transaction, Import a
@@ -325,11 +326,15 @@ class AccountDetailViewModel(
         }
     }
 
+    /** How often the user's list neared its end, or asked again: each rise asks the addr1 index for a page. */
+    private val moreActivity = MutableStateFlow(0)
+
     /**
      * The account's Activity, read while its tab is shown and for 5 s after, as the screen's own
      * state is: back on the tab within that, it is there at once, and not read again.
      */
-    private val sharedActivity = activity.of(account, amountsHidden).stateIn(
+    // The addr1 index's pages are kept in this ViewModel's scope: back from a row's detail, nothing is read again.
+    private val sharedActivity = activity.of(account, amountsHidden, moreActivity, viewModelScope).stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000, replayExpirationMillis = 0),
         ActivityUiState.Loading,
@@ -551,6 +556,14 @@ class AccountDetailViewModel(
     /** Orders the rows by [order]. */
     fun sortBy(order: AssetSort) {
         view.update { it.copy(sort = order) }
+    }
+
+    /**
+     * Asks the addr1 index for the Activity's next page (the list neared its end), or for the same page again after
+     * a passing refusal (Try again): one at a time, and nothing where the index adds nothing.
+     */
+    fun loadMoreActivity() {
+        moreActivity.update { it + 1 }
     }
 
     /** Runs the Activity's rows the way [order] says: newest first, or the oldest on top. */

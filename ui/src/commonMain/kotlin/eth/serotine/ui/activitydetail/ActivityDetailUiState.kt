@@ -41,8 +41,15 @@ sealed interface ActivityDetailUiState {
         val amountsHidden: Boolean = false,
     ) : ActivityDetailUiState
 
-    /** It cannot be shown, for the reason [message] gives. */
-    data class Unavailable(override val title: String, val message: String) : ActivityDetailUiState
+    /**
+     * It cannot be shown, for the reason [message] gives; [retry] when asking again may answer (a check of the addr1
+     * index that could not be made now), which Try again does.
+     */
+    data class Unavailable(
+        override val title: String,
+        val message: String,
+        val retry: Boolean = false,
+    ) : ActivityDetailUiState
 }
 
 /**

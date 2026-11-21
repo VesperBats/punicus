@@ -14,6 +14,8 @@ import eth.serotine.data.cow.HttpCowApi
 import eth.serotine.data.engine.MyotisHost
 import eth.serotine.data.handoff.NoWalletHandoff
 import eth.serotine.data.history.FileHistoryStarts
+import eth.serotine.data.history.NoAddressIndexHistory
+import eth.serotine.data.history.PinnedAddressIndexImporter
 import eth.serotine.data.keys.EnvelopeKeyStore
 import eth.serotine.data.keys.Secp256k1Recovery
 import eth.serotine.data.keys.desktopBiometricKey
@@ -28,6 +30,7 @@ import eth.serotine.data.outbox.desktopOutbox
 import eth.serotine.data.safe.FileSafeTxQueue
 import eth.serotine.data.safe.JsonSigningRequestCodec
 import eth.serotine.data.safe.PinnedSafeReleases
+import eth.serotine.data.settings.FileAddressIndexSetting
 import eth.serotine.data.settings.FileAmountsHidden
 import eth.serotine.data.settings.FileDebugScreen
 import eth.serotine.data.settings.FileDisplayCurrency
@@ -535,6 +538,13 @@ private fun openWallet(dataDir: File) {
                 dappSites = FileDappSites(dataDir.resolve("walletconnect/sites.json").path),
                 perAppAliases = FileDappAliases(dataDir.resolve("walletconnect/aliases.json").path),
                 dappConnectionsOff = dappProjectId.isEmpty(),
+                // An account's history from the addr1 index on Swarm, the desktop's alone, behind its experimental
+                // setting (owner ruling, 2026-11-21, #334). No published engine has the Swarm reader yet, so its
+                // adapter refuses "not in this build" until part 4 of the plan, and no key is pinned in this release:
+                // the setting is greyed out for both reasons.
+                addressIndex = NoAddressIndexHistory(),
+                addressIndexSetting = FileAddressIndexSetting(dataDir.resolve("address-index.json").path),
+                addressIndexImporter = PinnedAddressIndexImporter.KEY,
             )
         }
         Window(

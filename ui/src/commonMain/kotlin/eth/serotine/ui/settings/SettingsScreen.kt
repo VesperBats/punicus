@@ -1,5 +1,6 @@
 package eth.serotine.ui.settings
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,6 +61,9 @@ const val SETTINGS_SIGN_WHILE_SYNCING_TAG = "settings-sign-while-syncing"
 /** Test tag of the row that switches the heavy downloads on a metered connection, for UI tests. */
 const val SETTINGS_METERED_TAG = "settings-metered"
 
+/** Test tag of the desktop's experimental addr1 history switch, for UI tests. */
+const val SETTINGS_ADDRESS_INDEX_TAG = "settings-address-index"
+
 /**
  * What a tap on Connected dApps says in a build without a WalletConnect project ID
  * (docs/walletconnect.md, ruling 2).
@@ -111,6 +115,7 @@ fun SettingsRoute(
             onSignWhileSyncingChange = viewModel::signWhileSyncing,
             onMeteredDownloadsChange = viewModel::allowHeavyDownloadsOnMetered,
             onFetchFreshCheckpoint = viewModel::fetchFreshCheckpoint,
+            onAddressIndexChange = viewModel::useAddressIndex,
         )
         InterfaceMode.DETAILED -> SettingsScreen(
             state,
@@ -131,6 +136,7 @@ fun SettingsRoute(
             onSignWhileSyncingChange = viewModel::signWhileSyncing,
             onMeteredDownloadsChange = viewModel::allowHeavyDownloadsOnMetered,
             onFetchFreshCheckpoint = viewModel::fetchFreshCheckpoint,
+            onAddressIndexChange = viewModel::useAddressIndex,
         )
     }
 }
@@ -147,7 +153,10 @@ fun SettingsRoute(
  * [onConfirmTurnOff] and [onCancelTurnOff] (docs/networks.md, N16 and N20). *Sign while syncing*
  * turns lenient mode on or off through [onSignWhileSyncingChange] (docs/lenient-mode.md). The
  * switch for the heavy downloads on a metered connection calls [onMeteredDownloadsChange] with the
- * new choice; greyed out, a tap says why it cannot be changed (owner ruling, 2026-10-20).
+ * new choice; greyed out, a tap says why it cannot be changed (owner ruling, 2026-10-20). On the
+ * desktop, under Experimental, the experimental addr1 history ([SettingsUiState.addressIndex]) turns on
+ * or off through [onAddressIndexChange]; greyed out, a tap says what it needs (no importer key
+ * pinned in this release, no Swarm reader in this build's engine).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -170,8 +179,15 @@ fun SettingsScreen(
     onMeteredDownloadsChange: (Boolean) -> Unit = {},
     onFetchFreshCheckpoint: (chainId: Long, useUnconfirmed: Boolean) -> Unit = { _, _ -> },
     onPerApp: () -> Unit = {},
+    onAddressIndexChange: (Boolean) -> Unit = {},
+    /** Where the list is scrolled to: a preview of a row far down passes one scrolled there. */
+    scroll: ScrollState = rememberScrollState(),
 ) {
     var asking by remember { mutableStateOf<StaleAnchorWarning?>(null) }
+    var explainingAddressIndex by remember { mutableStateOf<String?>(null) }
+    explainingAddressIndex?.let { reason ->
+        UnavailableDialog(UnavailableNotice(ADDRESS_INDEX_TITLE, reason), onDismiss = { explainingAddressIndex = null })
+    }
     var explainingConnections by remember { mutableStateOf(false) }
     var explainingMetered by remember { mutableStateOf<String?>(null) }
     explainingMetered?.let { reason ->
@@ -206,7 +222,7 @@ fun SettingsScreen(
         )
     }
     Scaffold(modifier = modifier, topBar = { TopAppBar(title = { Text("Settings") }) }) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
+        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(scroll)) {
             Section("Display")
             ListItem(
                 modifier = Modifier.clickable(onClick = onCurrency),
@@ -343,6 +359,10 @@ fun SettingsScreen(
                 // The row is the toggle: the switch only shows its state.
                 trailingContent = { Switch(checked = state.signWhileSyncing, onCheckedChange = null) },
             )
+            state.addressIndex?.let { item ->
+                Section("Experimental")
+                AddressIndexRow(item, onAddressIndexChange) { explainingAddressIndex = it }
+            }
             state.screenCaptureAllowed?.let { allowed ->
                 Section("Debug build")
                 ListItem(
@@ -372,6 +392,45 @@ fun SettingsScreen(
 }
 
 private const val METERED_DOWNLOADS_TITLE = "Heavy downloads on metered connections"
+
+private const val ADDRESS_INDEX_TITLE = "Account history from the addr1 index"
+
+/** What the addr1 history does, and what others learn once it is on (docs/privacy-policy.md). */
+private const val ADDRESS_INDEX_TEXT = "Experimental. Activity also lists the entries of the addr1 index on Swarm, " +
+    "each checked against the chain before it is listed. Whether entries are missing rests on the importer. Turned " +
+    "on, Swarm peers see your IP address and which part of the index is read, not through Tor, and archive peers " +
+    "learn which past blocks matter to you (privacy policy)."
+
+/**
+ * The experimental addr1 history's switch: the whole row toggles it, or, greyed out, says what it needs through
+ * [onUnavailable] (owner ruling, 2026-10-18, #55).
+ */
+@Composable
+private fun AddressIndexRow(item: AddressIndexItem, onChange: (Boolean) -> Unit, onUnavailable: (String) -> Unit) {
+    val reason = item.unavailableReason
+    val row = if (reason == null) {
+        Modifier.toggleable(value = item.on, role = Role.Switch, onValueChange = onChange)
+    } else {
+        Modifier.clickable { onUnavailable(reason) }.unavailable(true)
+    }
+    val color = if (reason == null) Color.Unspecified else Unavailable.contentColor()
+    ListItem(
+        modifier = row.testTag(SETTINGS_ADDRESS_INDEX_TAG),
+        headlineContent = { Text(ADDRESS_INDEX_TITLE, color = color) },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(item.text, color = color)
+                Text(ADDRESS_INDEX_TEXT, color = color, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        // The row takes the tap, so a greyed switch still says why.
+        trailingContent = { Switch(checked = item.on, onCheckedChange = null, enabled = reason == null) },
+    )
+    // A choice to turn it on that is stored but not in force is taken back here, whatever greys the row out.
+    if (item.turnOff) {
+        TextButton(onClick = { onChange(false) }, Modifier.padding(start = 8.dp)) { Text("Turn off") }
+    }
+}
 
 /**
  * The switch for the heavy downloads on a metered connection: the whole row toggles it, or, greyed

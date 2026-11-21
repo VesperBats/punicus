@@ -1,8 +1,10 @@
 package eth.serotine.ui.activitydetail
 
 import androidx.compose.runtime.Composable
+import eth.serotine.domain.model.Address
 import eth.serotine.ui.activity.ActivityState
 import eth.serotine.ui.components.AMOUNT_MASK
+import eth.serotine.ui.components.Eip55
 import eth.serotine.ui.components.verifiedStripSample
 import eth.serotine.ui.ScreenPreview
 import eth.serotine.ui.theme.SerotineTheme
@@ -198,6 +200,67 @@ private fun ActivityDetailUnavailablePreview() = ActivityDetailPreview(
     ),
 )
 
+/** A made-up importer key of the addr1 index: no release pins it. */
+private val SAMPLE_IMPORTER = Eip55.format(Address.of("0x" + "1e".repeat(20)))
+
+/** A row of the addr1 index, checked again as its detail opens (owner ruling, 2026-11-21, #334). */
+private val indexed = ActivityDetailUiState.Shown(
+    title = "Alice",
+    headline = "Named in a transaction · sender",
+    about = BOB,
+    status = "Finalized in block 9,300,000 · checked against the chain",
+    simpleStatus = "Final",
+    state = ActivityState.DONE,
+    fields = listOf(
+        DetailField("Transaction hash", "0x" + "3a".repeat(32), DetailKind.HASH),
+        DetailField("From", ALICE, DetailKind.ADDRESS, "Alice"),
+        DetailField("To", BOB, DetailKind.ADDRESS, "Bob"),
+        DetailField("Value", "0.25 ETH"),
+        DetailField(
+            "Outcome",
+            "Not checked: whether it succeeded is not reported by the engine yet, so its value may not have moved",
+        ),
+        DetailField("Block", "9,300,000", DetailKind.BLOCK),
+        DetailField("Block hash", "0x" + "b7".repeat(32), DetailKind.HASH),
+        DetailField("In the block", "Transaction 3"),
+        DetailField("Proven on chain", "Sender"),
+        DetailField("On the importer's word", "Reached by an inner call"),
+    ),
+    note = "Checked by the light client against block 9,300,000's verified header and receipts. The beacon chain " +
+        "has finalized that block. A block older than the light client's window is checked against the " +
+        "checkpoint table bundled with its engine. That the addr1 index lists this entry at all, and that none " +
+        "is missing, rests on its importer, $SAMPLE_IMPORTER, pinned in this release.",
+)
+
+@Preview
+@Composable
+private fun ActivityDetailIndexRowPreview() = ActivityDetailPreview(indexed)
+
+@Preview
+@Composable
+private fun ActivityDetailIndexRowDarkPreview() = ActivityDetailPreview(indexed, darkTheme = true)
+
+/** A row of the addr1 index whose check is refused now: it says why, and shows nothing of the entry. */
+@Preview
+@Composable
+private fun ActivityDetailIndexRefusedPreview() = ActivityDetailPreview(
+    ActivityDetailUiState.Unavailable(
+        "Alice",
+        "Tor routing is on, and the addr1 index is not read over Tor: nothing comes from it while Tor is on.",
+    ),
+)
+
+/** A row of the addr1 index whose check could not be made now: Try again checks it once more. */
+@Preview
+@Composable
+private fun ActivityDetailIndexTryAgainPreview() = ActivityDetailPreview(
+    ActivityDetailUiState.Unavailable(
+        "Alice",
+        "The light client is still catching up, so the index's entries cannot be checked yet.",
+        retry = true,
+    ),
+)
+
 /** Every preview above, which ActivityDetailScreenPreviewsTest renders: a new preview goes in here too. */
 internal val activityDetailScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("sent") { ActivityDetailSentPreview() },
@@ -211,4 +274,8 @@ internal val activityDetailScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("hidden") { ActivityDetailHiddenPreview() },
     ScreenPreview("hidden-dark") { ActivityDetailHiddenDarkPreview() },
     ScreenPreview("eth-logged") { ActivityDetailEthPreview() },
+    ScreenPreview("index-row") { ActivityDetailIndexRowPreview() },
+    ScreenPreview("index-row-dark") { ActivityDetailIndexRowDarkPreview() },
+    ScreenPreview("index-row-refused") { ActivityDetailIndexRefusedPreview() },
+    ScreenPreview("index-row-try-again") { ActivityDetailIndexTryAgainPreview() },
 )

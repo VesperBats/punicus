@@ -6,12 +6,16 @@ import eth.serotine.domain.model.AddressIndexEntry
 import eth.serotine.domain.model.AddressIndexVerdict
 import eth.serotine.domain.model.Network
 import eth.serotine.domain.repository.AddressIndexCheck
+import eth.serotine.domain.repository.AddressIndexChoice
 import eth.serotine.domain.repository.AddressIndexHistory
 import eth.serotine.domain.repository.AddressIndexPage
 import eth.serotine.domain.repository.AddressIndexQuery
 import eth.serotine.domain.repository.AddressIndexReading
 import eth.serotine.domain.repository.AddressIndexRefusal
+import eth.serotine.domain.repository.AddressIndexSetting
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.time.Duration
 
 /**
@@ -32,6 +36,11 @@ internal class FakeAddressIndexHistory(
     var pageTime: Duration = Duration.ZERO
     val queries = mutableListOf<Triple<Network, Address, AddressIndexQuery>>()
     val checks = mutableListOf<List<AddressIndexEntry>>()
+
+    /** What [hasReader] answers: a reader, unless a test says this build has none. */
+    var reader: Boolean = true
+
+    override suspend fun hasReader(): Boolean = reader
 
     override suspend fun page(network: Network, address: Address, query: AddressIndexQuery): AddressIndexReading {
         queries += Triple(network, address, query)
@@ -54,5 +63,19 @@ internal class FakeAddressIndexHistory(
         delay(checkTime)
         if (network !in served) return AddressIndexCheck.Refused(AddressIndexRefusal.NetworkNotServed(network))
         return check(entries, before)
+    }
+}
+
+/** An [AddressIndexSetting] in memory, as the port's contract says one behaves; [failSaves] makes every save fail. */
+internal class MemoryAddressIndexSetting : AddressIndexSetting {
+    val choice = MutableStateFlow<AddressIndexChoice>(AddressIndexChoice.Chosen(importer = null))
+    var failSaves = false
+
+    override fun observe(): Flow<AddressIndexChoice> = choice
+
+    override suspend fun trust(importer: Address?): Boolean {
+        if (failSaves || choice.value is AddressIndexChoice.Unreadable) return false
+        choice.value = AddressIndexChoice.Chosen(importer)
+        return true
     }
 }

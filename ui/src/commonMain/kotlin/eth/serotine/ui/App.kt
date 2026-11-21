@@ -38,6 +38,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import eth.serotine.domain.model.AccountId
 import eth.serotine.domain.model.Address
+import eth.serotine.domain.model.AddressIndexRole
 import eth.serotine.domain.model.CowOrderUid
 import eth.serotine.domain.model.Digest
 import eth.serotine.domain.model.Network
@@ -51,6 +52,7 @@ import eth.serotine.ui.accounts.AccountsViewModel
 import eth.serotine.ui.accounts.NoAccountOpenRoute
 import eth.serotine.ui.accounts.SelectedAccount
 import eth.serotine.ui.activity.ActivityKey
+import eth.serotine.ui.activity.IndexEntryKey
 import eth.serotine.ui.activitydetail.ActivityDetailRoute
 import eth.serotine.ui.addnetwork.AddOnNetworksRoute
 import eth.serotine.ui.addtoken.AddTokenRoute
@@ -495,6 +497,38 @@ private fun Destinations(
                     )
                 } else {
                     LaunchedEffect(Unit) { navController.popBackStack(ACTIVITY_DETAIL_ROUTE, inclusive = true) }
+                }
+            }
+            // The detail of a row of the addr1 index, by its entry: checked again as it opens (#334).
+            composable(
+                ACTIVITY_INDEX_ROUTE,
+                arguments = listOf(ROLES, HASH).map { name ->
+                    navArgument(name) {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                },
+            ) { entry ->
+                val account = entry.account()
+                val indexed = indexEntryKeyOf(
+                    entry.savedStateHandle.get<String>(BLOCK),
+                    entry.savedStateHandle.get<String>(SLOT),
+                    entry.savedStateHandle.get<String>(ROLES),
+                )
+                if (account != null && indexed != null) {
+                    val hash = entry.savedStateHandle.get<String>(HASH)?.lowercase()?.takeIf(TRANSACTION_HASH::matches)
+                    ActivityDetailRoute(
+                        viewModel = viewModel {
+                            graph.activityDetailViewModel(account, ActivityKey(hash.orEmpty(), index = indexed))
+                        },
+                        lightClient = lightClient.item(account.network),
+                        onBack = { navController.popBackStack(ACTIVITY_INDEX_ROUTE, inclusive = true) },
+                        onStatus = { sent -> navController.openTransfer(account.network, sent) },
+                        onAddToken = { contract -> navController.addToken(account.network, contract) },
+                    )
+                } else {
+                    LaunchedEffect(Unit) { navController.popBackStack(ACTIVITY_INDEX_ROUTE, inclusive = true) }
                 }
             }
             // Add token from an Activity detail: in this tab, its field filled in with the contract, on the
@@ -1152,6 +1186,16 @@ private fun NavController.openActivityDetail(account: AccountId, key: ActivityKe
     if (key.cowOrder) return openCowOrder(account.network, key.hash)
     // A transfer queued in lenient mode: its status, which shows it while it waits.
     if (key.queued) return openTransfer(account.network, key.hash)
+    // A row of the addr1 index: by its entry, and its transaction's hash where it has one.
+    key.index?.let { indexed ->
+        if (currentDestination?.route == ACTIVITY_INDEX_ROUTE) return
+        val hash = key.hash.lowercase().takeIf(TRANSACTION_HASH::matches)
+        val roles = indexed.roles.sortedBy { it.ordinal }.joinToString(",") { it.name }
+        return navigate(
+            "${Destination.ACTIVITY}/${account.route}/${Destination.ACTIVITY_INDEX_ENTRY}/${indexed.block}/" +
+                "${indexed.slot}?$ROLES=$roles" + (hash?.let { "&$HASH=$it" } ?: ""),
+        )
+    }
     // A second tap while the first one's screen is opening: one screen, the first one asked for.
     // (Not launchSingleTop: that would reuse the entry, and its key, for another one.)
     if (currentDestination?.route == ACTIVITY_DETAIL_ROUTE) return
@@ -1415,6 +1459,7 @@ private object Destination {
     const val RECEIVE = "receive"
     const val ACTIVITY = "activity"
     const val ACTIVITY_DETAIL = "tx"
+    const val ACTIVITY_INDEX_ENTRY = "index-entry"
     const val WATCH = "watch"
     const val RENAME = "rename"
     const val REMOVE = "remove"
@@ -1462,6 +1507,21 @@ private const val DAPP_REQUEST_ID = "request"
 
 /** An Activity detail's optional route argument: the log index of an event's log in its block. */
 private const val LOG = "log"
+
+/** The detail of a row of the addr1 index: its entry's block, its slot there and its roles, comma-separated. */
+private const val BLOCK = "block"
+private const val SLOT = "slot"
+private const val ROLES = "roles"
+
+/** The entry a route of the addr1 index's detail names, or null when it names none well formed. */
+private fun indexEntryKeyOf(block: String?, slot: String?, roles: String?): IndexEntryKey? {
+    val number = block?.toLongOrNull()?.takeIf { it >= 0 } ?: return null
+    val position = slot?.toIntOrNull()?.takeIf { it >= 0 } ?: return null
+    val named = roles?.split(",")
+        ?.map { name -> AddressIndexRole.entries.firstOrNull { it.name == name } ?: return null }
+        ?.toSet()?.takeIf { it.isNotEmpty() } ?: return null
+    return IndexEntryKey(number, position, named)
+}
 
 /** A Safe's swap's optional route argument: the hash of the queued swap it is proposed again in place of. */
 private const val REPLACING = "replacing"
@@ -1532,6 +1592,11 @@ private val ACCOUNT_ROUTE = accountRoute(Destination.ACCOUNT)
 /** The detail of a row of an account's Activity: a transaction by its hash, an event by its log too. */
 private const val ACTIVITY_DETAIL_ROUTE =
     "${Destination.ACTIVITY}/{$CHAIN}/{$ADDRESS}/${Destination.ACTIVITY_DETAIL}/{$HASH}?$LOG={$LOG}"
+
+/** The detail of a row of the addr1 index: its entry, by block, slot and roles, and its transaction's hash if any. */
+private const val ACTIVITY_INDEX_ROUTE =
+    "${Destination.ACTIVITY}/{$CHAIN}/{$ADDRESS}/${Destination.ACTIVITY_INDEX_ENTRY}/{$BLOCK}/{$SLOT}" +
+        "?$ROLES={$ROLES}&$HASH={$HASH}"
 
 /** A dApp's session proposal, by its pairing's topic and its id there (docs/walletconnect.md, screen D3). */
 private const val DAPP_PROPOSAL_ROUTE = "${Destination.DAPP_PROPOSAL}/{$PAIRING}/{$PROPOSAL}"

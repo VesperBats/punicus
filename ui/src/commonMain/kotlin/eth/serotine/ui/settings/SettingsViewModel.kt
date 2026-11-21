@@ -5,14 +5,19 @@ import androidx.lifecycle.viewModelScope
 import eth.serotine.domain.model.InterfaceMode
 import eth.serotine.domain.model.Network
 import eth.serotine.domain.model.SyncPolicy
+import eth.serotine.domain.repository.AddressIndexChoice
 import eth.serotine.domain.repository.ConnectionCost
 import eth.serotine.domain.repository.LightClientStatus
 import eth.serotine.domain.repository.MeteredDownloadsChoice
 import eth.serotine.domain.repository.OutboxList
+import eth.serotine.domain.usecase.AddressIndexMissing
+import eth.serotine.domain.usecase.AddressIndexStatus
+import eth.serotine.domain.usecase.AddressIndexSwitch
 import eth.serotine.domain.usecase.AllowHeavyDownloadsOnMetered
 import eth.serotine.domain.usecase.FetchFreshCheckpoint
 import eth.serotine.domain.usecase.HeavyDownloads
 import eth.serotine.domain.usecase.NetworkOverview
+import eth.serotine.domain.usecase.ObserveAddressIndexStatus
 import eth.serotine.domain.usecase.ObserveDebugScreen
 import eth.serotine.domain.usecase.ObserveDisplayCurrencies
 import eth.serotine.domain.usecase.ObserveHeavyDownloads
@@ -28,8 +33,10 @@ import eth.serotine.domain.usecase.SetNetworkEnabled
 import eth.serotine.domain.usecase.SetSyncPolicy
 import eth.serotine.domain.usecase.SyncPastStaleAnchor
 import eth.serotine.domain.usecase.TokenOrigin
+import eth.serotine.domain.usecase.TurnAddressIndex
 import eth.serotine.ui.APP_VERSION
 import eth.serotine.ui.components.CheckpointFetchState
+import eth.serotine.ui.components.Eip55
 import eth.serotine.ui.components.FreshCheckpointFetches
 import eth.serotine.ui.components.LightClientHealth
 import eth.serotine.ui.components.LightClientItem
@@ -37,6 +44,7 @@ import eth.serotine.ui.components.StaleAnchorWarning
 import eth.serotine.ui.components.dated
 import eth.serotine.ui.components.epochSecondsNow
 import eth.serotine.ui.components.redatedWhile
+import eth.serotine.ui.components.shortAddress
 import eth.serotine.ui.platform.ScreenCaptureDebugSwitch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -63,7 +71,9 @@ import kotlinx.coroutines.sync.withLock
  * debug build, the switch that allows screen recordings of the protected screens. Turning a
  * network on asks nothing; turning off one with accounts asks first, and one without turns off at
  * once. The tokens are every network's, counted together; the currency is
- * the wallet's one.
+ * the wallet's one. On the desktop, the experimental addr1 history's switch
+ * ([useAddressIndex]), greyed out while no importer key is pinned in the
+ * release or the engine has no Swarm reader.
  */
 class SettingsViewModel(
     private val observeNetworkOverview: ObserveNetworkOverview,
@@ -91,7 +101,23 @@ class SettingsViewModel(
     private val allowOnMetered: AllowHeavyDownloadsOnMetered,
     /** Now, in unix seconds: what the light clients' lines date the head block against. */
     private val clock: () -> Long = ::epochSecondsNow,
+    /** The desktop's experimental addr1 history; null where the host offers no such setting (Android, iOS). */
+    observeAddressIndex: ObserveAddressIndexStatus? = null,
+    /** Turns it on, for the key pinned in the release, or off; null with [observeAddressIndex]. */
+    private val turnAddressIndex: TurnAddressIndex? = null,
 ) : ViewModel() {
+
+    /** Whether the last switch of the addr1 history could not be saved. */
+    private val addressIndexNotSaved = MutableStateFlow(false)
+
+    /** One save at a time, in the user's order, so the last one's outcome is what [addressIndexNotSaved] says. */
+    private val savingAddressIndex = Mutex()
+
+    /** The addr1 history's row, where the host offers it; null where it does not, or until it is read. */
+    private val addressIndex = observeAddressIndex
+        ?.let { observe -> combine(observe(), addressIndexNotSaved) { status, notSaved -> status.item(notSaved) } }
+        ?.onStart<AddressIndexItem?> { emit(null) }
+        ?: flowOf(null)
 
     /** Whether the last switch of the Debug tab could not be saved. */
     private val debugScreenNotSaved = MutableStateFlow(false)
@@ -221,6 +247,7 @@ class SettingsViewModel(
             .combine(combine(observeHeavyDownloads(), meteredNotSaved, ::Pair)) { state, (downloads, notSaved) ->
                 state.copy(meteredDownloads = downloads.item(notSaved))
             }
+            .combine(addressIndex) { state, item -> state.copy(addressIndex = item) }
             .stateIn(
                 viewModelScope,
                 // A tab back after the timeout must not show an old head as current.
@@ -359,6 +386,61 @@ class SettingsViewModel(
         viewModelScope.launch {
             detailedViewNotSaved.value = !setInterfaceMode(if (shown) InterfaceMode.DETAILED else InterfaceMode.SIMPLE)
         }
+    }
+
+    /**
+     * Turns the addr1 history on, for the importer key pinned in the release, or off; a choice not saved is said on
+     * the switch. Where it cannot be turned on, the row is greyed out and a tap says why instead: nothing is asked.
+     */
+    fun useAddressIndex(on: Boolean) {
+        val turn = turnAddressIndex ?: return
+        viewModelScope.launch {
+            savingAddressIndex.withLock {
+                addressIndexNotSaved.value = turn(on) == AddressIndexSwitch.NotSaved
+            }
+        }
+    }
+
+    /** The row of the addr1 history; [notSaved] when the last switch of it could not be saved. */
+    private fun AddressIndexStatus.item(notSaved: Boolean): AddressIndexItem {
+        val text = buildString {
+            append(if (on) "On" else "Off")
+            append(
+                pinned?.let { ": importer ${Eip55.format(it)}, pinned in this release" }
+                    ?: ": no importer key is pinned in this release yet",
+            )
+            if (AddressIndexMissing.NO_READER in missing) append(" · This build's engine has no Swarm reader")
+            val stored = (choice as? AddressIndexChoice.Chosen)?.importer
+            val other = trustsAnotherKey
+            when {
+                // Turned on again, it trusts the key pinned now: only when one is.
+                other != null && pinned != null -> append(
+                    " · It was turned on for another importer, ${shortAddress(Eip55.format(other))}: turned on " +
+                        "again, it trusts the one pinned now",
+                )
+                stored != null && !on ->
+                    append(" · Turned on in another build: it stays off here, and Turn off clears that choice")
+            }
+            if (setAside) append(" (your saved choice was damaged and set aside)")
+            if (notSaved) append(" · Your choice could not be saved")
+        }
+        val reasons = AddressIndexMissing.entries.filter { it in missing }.map { missing ->
+            when (missing) {
+                AddressIndexMissing.NO_KEY_PINNED -> "No importer key is pinned in this release yet. The index is " +
+                    "read only on the word of an importer whose key a release pins; a key is never typed in here."
+                AddressIndexMissing.NO_READER -> "This build's engine has no Swarm reader, so the index cannot be " +
+                    "read here. The history stays the light client's log index."
+                AddressIndexMissing.CHOICE_UNREADABLE -> "Your saved choice cannot be read, so it is taken as off. " +
+                    "Punicus keeps trying to read it, and the switch works again once it can."
+            }
+        }
+        return AddressIndexItem(
+            on = on,
+            text = text,
+            unavailableReason = reasons.joinToString(" ").ifEmpty { null },
+            // A stored choice not in force can always be taken back, greyed out or not (TurnAddressIndex).
+            turnOff = !on && (choice as? AddressIndexChoice.Chosen)?.importer != null,
+        )
     }
 
     /** Allows the heavy downloads on a metered connection, or not; a choice not saved is said on the switch. */

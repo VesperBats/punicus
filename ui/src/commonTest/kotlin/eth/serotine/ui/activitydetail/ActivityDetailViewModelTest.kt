@@ -5,6 +5,8 @@ import eth.serotine.domain.model.AccountCustody
 import eth.serotine.domain.model.AccountId
 import eth.serotine.domain.model.AccountKind
 import eth.serotine.domain.model.Address
+import eth.serotine.domain.model.AddressIndexRole
+import eth.serotine.domain.model.AddressIndexRow
 import eth.serotine.domain.model.CowOrderUid
 import eth.serotine.domain.model.Network
 import eth.serotine.domain.model.SafeTx
@@ -14,16 +16,19 @@ import eth.serotine.domain.model.Token
 import eth.serotine.domain.model.TokenTransfers
 import eth.serotine.domain.model.TransferAsset
 import eth.serotine.domain.model.UInt256
+import eth.serotine.domain.repository.AddressIndexRefusal
 import eth.serotine.domain.repository.HistoryEntry
 import eth.serotine.domain.repository.HistoryStart
 import eth.serotine.domain.repository.IndexedLog
 import eth.serotine.domain.repository.LogCoverage
 import eth.serotine.domain.repository.LogCoverageReading
 import eth.serotine.domain.repository.LogWatchKey
+import eth.serotine.domain.repository.ReadUnavailable
 import eth.serotine.domain.repository.ReceiptLog
 import eth.serotine.domain.repository.SentAction
 import eth.serotine.domain.repository.SentOutcome
 import eth.serotine.domain.repository.SentTransfer
+import eth.serotine.domain.usecase.CheckAddressIndexEntry
 import eth.serotine.domain.usecase.ObserveAccountHistory
 import eth.serotine.domain.usecase.ObserveAccounts
 import eth.serotine.domain.usecase.ObserveAmountsHidden
@@ -32,18 +37,23 @@ import eth.serotine.domain.usecase.ObserveSafeHistory
 import eth.serotine.domain.usecase.ObserveSentTo
 import eth.serotine.domain.usecase.ObserveTokenTransfers
 import eth.serotine.domain.usecase.ToggleAmountsHidden
+import eth.serotine.ui.FIXTURE_IMPORTER
 import eth.serotine.ui.FakeAccounts
+import eth.serotine.ui.FakeAddressIndexHistory
 import eth.serotine.ui.FakeLogIndex
 import eth.serotine.ui.FakeMetadata
 import eth.serotine.ui.ListCatalog
+import eth.serotine.ui.MemoryAddressIndexSetting
 import eth.serotine.ui.MemoryAmountsHidden
 import eth.serotine.ui.MemoryHistoryStarts
 import eth.serotine.ui.MemoryTransactionHistory
 import eth.serotine.ui.MemoryUserTokens
 import eth.serotine.ui.activity.ActivityKey
 import eth.serotine.ui.activity.ActivityState
+import eth.serotine.ui.activity.IndexEntryKey
 import eth.serotine.ui.components.AMOUNT_MASK
 import eth.serotine.ui.components.Eip55
+import eth.serotine.ui.indexRow
 import eth.serotine.ui.topicOf
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -103,7 +113,11 @@ class ActivityDetailViewModelTest {
     @AfterTest
     fun resetMainDispatcher() = Dispatchers.resetMain()
 
-    private fun TestScope.viewModel(key: ActivityKey, address: Address = alice.address): ActivityDetailViewModel {
+    private fun TestScope.viewModel(
+        key: ActivityKey,
+        address: Address = alice.address,
+        check: CheckAddressIndexEntry? = null,
+    ): ActivityDetailViewModel {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val viewModel = ActivityDetailViewModel(
             AccountId(Network.SEPOLIA, address),
@@ -116,6 +130,7 @@ class ActivityDetailViewModelTest {
             ObserveSentTo(history),
             ObserveAmountsHidden(amountsHidden),
             ToggleAmountsHidden(amountsHidden),
+            check,
         ) { "at $it" }
         backgroundScope.launch { viewModel.uiState.collect {} }
         runCurrent()
@@ -405,5 +420,114 @@ class ActivityDetailViewModelTest {
         )
         assertNull(shown.addToken)
         assertTrue(shown.note.orEmpty().startsWith("A plain ETH transfer"))
+    }
+
+    private val addressIndex = FakeAddressIndexHistory()
+    private val addressIndexOn = MemoryAddressIndexSetting(on = FIXTURE_IMPORTER)
+
+    /** The detail's check, with the setting on for the fixture's key. */
+    private val checkOn = CheckAddressIndexEntry(addressIndex, addressIndexOn, FIXTURE_IMPORTER)
+
+    private fun indexKey(row: AddressIndexRow) = ActivityKey(
+        row.transaction?.hash.orEmpty(),
+        index = IndexEntryKey(row.entry.block, row.entry.slot, row.entry.roles),
+    )
+
+    @Test
+    fun anIndexRowIsCheckedAgainAndShownWithWhatItRestsOn() = runTest {
+        val roles = setOf(AddressIndexRole.TO, AddressIndexRole.TRACE)
+        val row = indexRow(9_300_000, 3, bob, alice.address, wei = "1000000000000000000", roles = roles)
+        addressIndex.verifiedRows[row.entry] = row
+
+        val shown = assertIs<ActivityDetailUiState.Shown>(
+            viewModel(indexKey(row), check = checkOn).uiState.value,
+        )
+
+        assertEquals("Received 1 ETH", shown.headline)
+        assertEquals(ActivityState.CAUTION, shown.state, "from an address never sent to")
+        val fields = shown.fields.associate { it.label to it.value }
+        assertEquals(row.transaction?.hash, fields["Transaction hash"])
+        assertEquals("9,300,000", fields["Block"])
+        assertEquals("Transaction 3", fields["In the block"])
+        assertEquals("Recipient", fields["Proven on chain"])
+        assertEquals("Reached by an inner call", fields["On the importer's word"])
+        assertEquals(false, shown.fields.single { it.label == "From" }.copyable, "a cautioned sender has no Copy")
+        val note = checkNotNull(shown.note)
+        assertTrue(note.contains(Eip55.format(FIXTURE_IMPORTER)), note)
+        assertTrue(note.contains("finalized"), note)
+    }
+
+    @Test
+    fun anIndexRowNoLongerVerifiedIsNotShown() = runTest {
+        val row = indexRow(9_300_000, 3, alice.address, bob)
+
+        val check = checkOn
+
+        val state = viewModel(indexKey(row), check = check).uiState.value
+
+        val unavailable = assertIs<ActivityDetailUiState.Unavailable>(state)
+        assertTrue(
+            unavailable.message.startsWith("This entry of the addr1 index cannot be verified"),
+            unavailable.message,
+        )
+    }
+
+    @Test
+    fun aRefusedCheckSaysWhyAndAHostWithoutTheIndexShowsNone() = runTest {
+        val row = indexRow(9_300_000, 3, alice.address, bob)
+        addressIndex.checkRefusal = AddressIndexRefusal.TorRouting
+
+        val refused = viewModel(indexKey(row), check = checkOn)
+        val none = viewModel(indexKey(row))
+
+        assertTrue(assertIs<ActivityDetailUiState.Unavailable>(refused.uiState.value).message.startsWith("Tor routing"))
+        assertTrue(
+            assertIs<ActivityDetailUiState.Unavailable>(none.uiState.value).message.startsWith("This build's engine"),
+        )
+    }
+
+    @Test
+    fun anIndexRowWhoseOutcomeIsNotReportedSaysSoBesideItsValue() = runTest {
+        val row = indexRow(9_300_000, 3, alice.address, bob, wei = "250000000000000000", succeeded = null)
+        addressIndex.verifiedRows[row.entry] = row
+
+        val check = checkOn
+        val shown = assertIs<ActivityDetailUiState.Shown>(viewModel(indexKey(row), check = check).uiState.value)
+
+        assertEquals("Named in a transaction · sender", shown.headline, "no value claimed as moved")
+        val fields = shown.fields.associate { it.label to it.value }
+        assertEquals("0.25 ETH", fields["Value"])
+        assertTrue(checkNotNull(fields["Outcome"]).startsWith("Not checked"), fields["Outcome"])
+    }
+
+    @Test
+    fun aCheckThatCouldNotBeMadeNowOffersTryAgainWhichChecksOnceMore() = runTest {
+        val row = indexRow(9_300_000, 3, alice.address, bob)
+        addressIndex.verifiedRows[row.entry] = row
+        addressIndex.checkRefusal = AddressIndexRefusal.NotNow(ReadUnavailable.SYNCING)
+        val viewModel = viewModel(indexKey(row), check = checkOn)
+
+        val waiting = assertIs<ActivityDetailUiState.Unavailable>(viewModel.uiState.value)
+        assertTrue(waiting.retry)
+        assertTrue(waiting.message.contains("cannot be checked yet"), waiting.message)
+
+        addressIndex.checkRefusal = null
+        viewModel.checkAgain()
+        runCurrent()
+
+        assertIs<ActivityDetailUiState.Shown>(viewModel.uiState.value)
+    }
+
+    @Test
+    fun theDetailChecksNothingOnceTheSettingIsOff() = runTest {
+        val row = indexRow(9_300_000, 3, alice.address, bob)
+        addressIndex.verifiedRows[row.entry] = row
+        val off = MemoryAddressIndexSetting()
+
+        val state = viewModel(indexKey(row), check = CheckAddressIndexEntry(addressIndex, off, FIXTURE_IMPORTER))
+
+        val refused = assertIs<ActivityDetailUiState.Unavailable>(state.uiState.value)
+        assertTrue(refused.message.contains("experimental setting is off"), refused.message)
+        assertEquals(false, refused.retry)
     }
 }

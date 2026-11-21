@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import eth.serotine.domain.model.AccountId
 import eth.serotine.domain.model.Address
+import eth.serotine.domain.model.AddressIndexEntry
+import eth.serotine.domain.model.AddressIndexVerdict
 import eth.serotine.domain.model.DelayCall
 import eth.serotine.domain.model.DelayMemberChange
 import eth.serotine.domain.model.DelayTransfer
@@ -13,9 +15,12 @@ import eth.serotine.domain.model.SigningRequest
 import eth.serotine.domain.model.TokenTransfer
 import eth.serotine.domain.model.TransferAsset
 import eth.serotine.domain.repository.AccountList
+import eth.serotine.domain.repository.AddressIndexRefusal
 import eth.serotine.domain.repository.HistoryEntry
 import eth.serotine.domain.repository.HistoryList
 import eth.serotine.domain.repository.SentAction
+import eth.serotine.domain.usecase.AddressIndexEntryCheck
+import eth.serotine.domain.usecase.CheckAddressIndexEntry
 import eth.serotine.domain.usecase.IndexedEvent
 import eth.serotine.domain.usecase.IndexedHistory
 import eth.serotine.domain.usecase.KnownToken
@@ -35,16 +40,23 @@ import eth.serotine.ui.activity.ActivityRows
 import eth.serotine.ui.activity.ActivitySources
 import eth.serotine.ui.activity.ActivityState
 import eth.serotine.ui.activity.Parties
+import eth.serotine.ui.activity.indexRefusalText
 import eth.serotine.ui.activity.movesNothing
+import eth.serotine.ui.activity.rolesText
 import eth.serotine.ui.components.Eip55
 import eth.serotine.ui.components.displaySymbol
 import eth.serotine.ui.components.grouped
 import eth.serotine.ui.platform.formatDateTime
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -75,10 +87,18 @@ class ActivityDetailViewModel(
     observeAmountsHidden: ObserveAmountsHidden,
     /** Hides amounts or shows them again: what a tap on the eye asks. */
     private val toggleAmountsHidden: ToggleAmountsHidden,
+    /**
+     * Checks a row of the addr1 index again, which its detail shows only as the check finds it now (owner ruling,
+     * 2026-11-21, #334); null where the host reads no such index, and such a row is not shown.
+     */
+    private val checkIndexEntry: CheckAddressIndexEntry? = null,
     private val formatTime: (Long) -> String = ::formatDateTime,
 ) : ViewModel() {
     /** The account this screen is about: its address, on its network. */
     private val address: Address = account.address
+
+    /** How often the user asked a row of the addr1 index to be checked again: each rise checks it once more. */
+    private val checkAgain = MutableStateFlow(0)
 
     /** The account's network: everything here is read and sent there. */
     private val network: Network = account.network
@@ -112,8 +132,26 @@ class ActivityDetailViewModel(
      * Only what the row is read from is followed: the history for a sent one, the log index for an
      * event; the history beside an event too, for the request of a Safe transaction it may be of.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     private val shown: Flow<ActivityDetailUiState> = observeAmountsHidden().let { hiddenFlow ->
-        if (key.logIndex == null) {
+        val indexed = key.index
+        if (indexed != null) {
+            val entry = AddressIndexEntry(indexed.block, indexed.slot, indexed.roles)
+            // Checked once each time the screen is read, and again on Try again: Loading (null) until it answers.
+            val checked = checkAgain.flatMapLatest {
+                flow<AddressIndexEntryCheck?> {
+                    emit(null)
+                    emit(
+                        checkIndexEntry?.invoke(account, entry)
+                            ?: AddressIndexEntryCheck.Refused(AddressIndexRefusal.NotInThisBuild),
+                    )
+                }
+            }
+            combine(checked, sources.parties, combine(sources.tokens, hiddenFlow, ::Pair)) { check, parties, both ->
+                val (tokens, hidden) = both
+                renderIndexed(check, parties, tokens, rowsFor(hidden, tokens, emptyList())).withHidden(hidden)
+            }
+        } else if (key.logIndex == null) {
             combine(
                 observeAccountHistory(account),
                 sources.parties,
@@ -134,6 +172,14 @@ class ActivityDetailViewModel(
                 renderLogged(parties, safe, transfers, tokens, rowsFor(hidden, tokens, entries)).withHidden(hidden)
             }
         }
+    }
+
+    /**
+     * Checks a row of the addr1 index once more: Try again, after a check that could not be made now (the light
+     * client still catching up, a block no peer served). Nothing for any other row.
+     */
+    fun checkAgain() {
+        if (key.index != null) checkAgain.update { it + 1 }
     }
 
     /**
@@ -185,6 +231,101 @@ class ActivityDetailViewModel(
         // Until the tokens are known, what moved cannot be said.
         if (tokens == null) return ActivityDetailUiState.Loading(title)
         return transferShown(title, transfer, parties, tokens, rows)
+    }
+
+    /**
+     * A row of the addr1 index as the engine's check finds it now ([check]; null until it answers): shown only when
+     * verified, with every field it concerns, the block it was checked against, which roles are proven and which rest
+     * on the importer's word, and what it rests on; anything else says why it is not shown.
+     */
+    private fun renderIndexed(
+        check: AddressIndexEntryCheck?,
+        parties: Parties,
+        tokens: Map<Address, KnownToken>?,
+        rows: ActivityRows,
+    ): ActivityDetailUiState {
+        val names = parties.names
+        val title = sources.titleOf(names)
+        val verdict = when (check) {
+            null -> return ActivityDetailUiState.Loading(title)
+            is AddressIndexEntryCheck.Refused -> return ActivityDetailUiState.Unavailable(
+                title,
+                indexRefusalText(check.reason, network),
+                retry = check.reason.retryable,
+            )
+            is AddressIndexEntryCheck.Checked -> check.verdict
+        }
+        val indexed = when (verdict) {
+            is AddressIndexVerdict.Verified -> verdict.row
+            is AddressIndexVerdict.Contradicted -> return ActivityDetailUiState.Unavailable(
+                title,
+                "The chain now contradicts this entry of the addr1 index (${rolesText(verdict.contradicted)}), so " +
+                    "it is not shown. Its importer's index said something the chain proves false.",
+            )
+            is AddressIndexVerdict.Unverified -> return ActivityDetailUiState.Unavailable(
+                title,
+                "This entry of the addr1 index cannot be verified" +
+                    (verdict.reason?.let { ": $it" } ?: "") + ". It is not shown.",
+            )
+            is AddressIndexVerdict.Unavailable -> return ActivityDetailUiState.Unavailable(
+                title,
+                "This entry cannot be checked right now (${verdict.reason}).",
+                retry = true,
+            )
+        }
+        // Until the tokens are known, what moved cannot be said.
+        if (tokens == null) return ActivityDetailUiState.Loading(title)
+        val row = rows.indexRow(indexed, parties, tokens)
+            ?: return ActivityDetailUiState.Unavailable(title, MOVED_NOTHING)
+        val entry = indexed.entry
+        val fields = buildList {
+            indexed.transaction?.let { tx ->
+                add(DetailField("Transaction hash", tx.hash, DetailKind.HASH))
+                add(addressOf("From", tx.from, names))
+                add(tx.to?.let { addressOf("To", it, names) } ?: DetailField("To", "None: it creates a contract"))
+                // A fact of the transaction, not a claim that it moved: a reverted one keeps its value field.
+                tx.value.toUInt256OrNull()?.let { add(DetailField("Value", rows.amount(it, TransferAsset.Native))) }
+                add(
+                    DetailField(
+                        "Outcome",
+                        when (tx.succeeded) {
+                            true -> "Succeeded, as its verified receipt says"
+                            false -> "Failed on chain: its call reverted, and its value did not move"
+                            null -> "Not checked: whether it succeeded is not reported by the engine yet, so its " +
+                                "value may not have moved"
+                        },
+                    ),
+                )
+                tx.transfer?.let { add(addressOf("Token contract", it.token, names, tokens[it.token]?.token?.symbol)) }
+            }
+            add(DetailField("Block", grouped(entry.block), DetailKind.BLOCK))
+            add(DetailField("Block hash", indexed.blockHash, DetailKind.HASH))
+            val position = entry.transactionIndex?.let { "Transaction ${it + 1}" } ?: "The block itself"
+            add(DetailField("In the block", position))
+            add(DetailField("Proven on chain", rolesText(indexed.confirmed).replaceFirstChar { it.uppercase() }))
+            if (indexed.unchecked.isNotEmpty()) {
+                add(
+                    DetailField(
+                        "On the importer's word",
+                        rolesText(indexed.unchecked).replaceFirstChar { it.uppercase() },
+                    ),
+                )
+            }
+        }
+        val importer = checkIndexEntry?.importer?.let(Eip55::format)
+        val restsOn = "Checked by the light client against block ${grouped(entry.block)}'s verified header and " +
+            "receipts. " + (if (indexed.final) "The beacon chain has finalized that block. " else "That block is " +
+            "not final yet: a reorganisation may still replace it. ") + "A block older than the light client's " +
+            "window is checked against the checkpoint table bundled with its engine. That the addr1 index lists " +
+            "this entry at all, and that none is missing, rests on its importer" +
+            (importer?.let { ", $it, pinned in this release." } ?: ".")
+        return shownOf(
+            title,
+            row,
+            fields,
+            note = listOfNotNull(SENDER_NOTE.takeIf { row.state == ActivityState.CAUTION }, restsOn)
+                .joinToString("\n\n"),
+        )
     }
 
     /** The event [key] names in this history, when it is read with it. */

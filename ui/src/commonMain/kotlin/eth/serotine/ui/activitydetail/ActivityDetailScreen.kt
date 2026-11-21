@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -70,6 +71,7 @@ fun ActivityDetailRoute(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val retry = viewModel::checkAgain
     val copy = rememberCopyText()
     // The same state in the view the user chose (docs/simple-ui.md).
     when (LocalInterfaceMode.current) {
@@ -82,6 +84,7 @@ fun ActivityDetailRoute(
             modifier,
             onToggleAmounts = viewModel::toggleAmounts,
             syncLine = lightClient.collectAsStateWithLifecycle().value,
+            onRetry = retry,
         )
         // The strip in Detailed view; in simple mode the same item, drawn as the sync line while it says something.
         InterfaceMode.DETAILED -> ActivityDetailScreen(
@@ -93,6 +96,7 @@ fun ActivityDetailRoute(
             onAddToken = onAddToken,
             modifier = modifier,
             onToggleAmounts = viewModel::toggleAmounts,
+            onRetry = retry,
         )
     }
 }
@@ -104,7 +108,8 @@ fun ActivityDetailRoute(
  * here, and Add token ([onAddToken]) for an ERC-20 contract the wallet does not list.
  * [lightClient] is the strip above it, Detailed view's; simple mode ([SimpleActivityDetailScreen])
  * has none, and keeps the block behind *Details* ([details]). Once it is shown, the eye beside Back
- * hides or shows its amounts ([onToggleAmounts]; docs/wallet-ux.md, *Hiding amounts*).
+ * hides or shows its amounts ([onToggleAmounts]; docs/wallet-ux.md, *Hiding amounts*). A row of the addr1 index
+ * whose check could not be made now offers Try again ([onRetry]).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,6 +124,7 @@ fun ActivityDetailScreen(
     onToggleAmounts: () -> Unit = {},
     details: List<DetailField> = emptyList(),
     syncLine: LightClientItem? = null,
+    onRetry: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
@@ -143,7 +149,7 @@ fun ActivityDetailScreen(
         },
     ) { padding ->
         UnderLightClientStripIfAny(lightClient, Modifier.padding(padding), syncLine) {
-            DetailContent(state, onCopy, onStatus, onAddToken, details)
+            DetailContent(state, onCopy, onStatus, onAddToken, details, onRetry)
         }
     }
 }
@@ -156,14 +162,14 @@ private fun BoxScope.DetailContent(
     onStatus: (String) -> Unit,
     onAddToken: (String) -> Unit,
     details: List<DetailField>,
+    onRetry: () -> Unit,
 ) {
     when (state) {
         is ActivityDetailUiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-        is ActivityDetailUiState.Unavailable -> Text(
-            state.message,
-            Modifier.padding(16.dp),
-            color = MaterialTheme.colorScheme.error,
-        )
+        is ActivityDetailUiState.Unavailable -> Column(Modifier.padding(16.dp)) {
+            Text(state.message, color = MaterialTheme.colorScheme.error)
+            if (state.retry) TextButton(onClick = onRetry) { Text("Try again") }
+        }
         is ActivityDetailUiState.Shown -> Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

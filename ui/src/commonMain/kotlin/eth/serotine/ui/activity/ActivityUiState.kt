@@ -1,5 +1,7 @@
 package eth.serotine.ui.activity
 
+import eth.serotine.domain.model.AddressIndexRole
+
 /**
  * Everything an account's Activity renders, the Activity tab of its detail (docs/wallet-ux.md,
  * screen 25; issue #85): the transactions this device sent for it and, for a Safe, its own events
@@ -17,7 +19,9 @@ sealed interface ActivityUiState {
      * this account"). Above them, the swaps whose next step [waiting] for the user, each with
      * Continue, in the same place whichever way the rows run; and first of all, what the account has
      * [queued] in lenient mode ("Waiting to send", "Needs your signature again";
-     * docs/lenient-mode.md, *Where it shows*), each opening its status.
+     * docs/lenient-mode.md, *Where it shows*), each opening its status. [index] is what the addr1 index adds, on the
+     * desktop with its experimental setting on (owner ruling, 2026-11-21, #334): its lines, and its footer below the
+     * rows; null where it adds nothing (the setting off, or not offered here). Its verified rows are among [rows].
      */
     data class Shown(
         val rows: List<ActivityRow>,
@@ -26,6 +30,7 @@ sealed interface ActivityUiState {
         val simpleCoverage: String = coverage,
         val waiting: List<WaitingStep> = emptyList(),
         val queued: List<ActivityRow> = emptyList(),
+        val index: IndexSection? = null,
     ) : ActivityUiState
 
     /** The history cannot be read right now, for the reason [message] gives. */
@@ -71,7 +76,76 @@ data class ActivityKey(
     val logIndex: Int? = null,
     val cowOrder: Boolean = false,
     val queued: Boolean = false,
+    val index: IndexEntryKey? = null,
 )
+
+/**
+ * A row of the addr1 index ([ActivityKey.index]), by the entry it shows: its [block], its [slot] there (0 for the block
+ * itself, else the transaction's index plus one) and the [roles] the index names the account in, which its detail
+ * checks again (docs/wallet-ux.md, screen 26). Its key's [ActivityKey.hash] is the transaction's hash, empty for an
+ * entry about the block itself.
+ */
+data class IndexEntryKey(val block: Long, val slot: Int, val roles: Set<AddressIndexRole>)
+
+/**
+ * What the addr1 index adds to an account's Activity (owner ruling, 2026-11-21, #334; the owner's decisions of that
+ * day on #335): display-ready, in the words of Detailed view, and in simple mode's ([simpleLines], with no block
+ * number).
+ * - [lines]: what it is and what it rests on, the importer key named in full, saying that entries may be missing;
+ *   then every range it does not cover: where its coverage starts, the newest blocks it has not reached yet (the
+ *   head gap), the gaps inside it. Empty while its first page is read.
+ * - [leftOut]: how many of its entries were left out because they could not be verified; null for none.
+ * - [contradicted]: how many the chain contradicts, apart, as a warning against the importer's key; null for none.
+ * - [footer]: what follows its rows, at the end of the list: loading, more to load, the end of its coverage, or why
+ *   nothing (more) comes from it.
+ * - [footerFirst]: the footer goes above the rows, when they run oldest first, so that what loads next stays where
+ *   the older rows are.
+ * - [simpleLeftOut], [simpleContradicted]: the two counts in simple mode's words.
+ */
+data class IndexSection(
+    val lines: List<String>,
+    val footer: IndexFooter,
+    val leftOut: String? = null,
+    val contradicted: String? = null,
+    val simpleLines: List<String> = lines,
+    val footerFirst: Boolean = false,
+    val simpleLeftOut: String? = leftOut,
+    val simpleContradicted: String? = contradicted,
+)
+
+/** What follows the addr1 index's rows in an account's Activity. */
+sealed interface IndexFooter {
+    /**
+     * A page is being read and checked: [text] says so ([simpleText] in simple mode), in a footer that holds its
+     * room.
+     */
+    data class Loading(val text: String, val simpleText: String = text) : IndexFooter
+
+    /** More entries lie below: the next page is read as the user nears the end of the list. */
+    data object More : IndexFooter
+
+    /**
+     * More entries lie below, but the last page added no row to the list: the next is read only on the user's tap
+     * (Load older entries), never by itself; [text] says what that page left out ([simpleText] in simple mode). A tap
+     * that adds rows makes the list read on by itself again.
+     */
+    data class Paused(val text: String, val simpleText: String = text) : IndexFooter
+
+    /** The end of what the index covers: [text], "The addr1 index starts at block …". */
+    data class End(val text: String, val simpleText: String = text) : IndexFooter
+
+    /**
+     * Nothing (more) is read from it, for the reason [text] gives, never an empty list; [retry] when asking again
+     * may answer (Try again), [warning] when the reason is a warning (the checkpoint table's alarm); [simpleText] in
+     * simple mode's words, with no block number and no quote of the engine.
+     */
+    data class Refused(
+        val text: String,
+        val retry: Boolean = false,
+        val warning: Boolean = false,
+        val simpleText: String = text,
+    ) : IndexFooter
+}
 
 /**
  * A swap whose next step waits for the user (docs/simple-ui.md, H5): what it swaps ([title], "Swap 40
@@ -127,7 +201,7 @@ enum class ActivityOrder {
  */
 fun ActivityUiState.ordered(order: ActivityOrder): ActivityUiState = when {
     order == ActivityOrder.NEWEST_FIRST || this !is ActivityUiState.Shown -> this
-    else -> copy(rows = rows.asReversed())
+    else -> copy(rows = rows.asReversed(), index = index?.copy(footerFirst = true))
 }
 
 /**
@@ -140,6 +214,20 @@ internal fun ActivityUiState.simple(): ActivityUiState = when (this) {
         rows = rows.map { it.copy(time = it.simpleTime.orEmpty(), status = it.simpleStatus ?: it.status) },
         queued = queued.map { it.copy(time = it.simpleTime.orEmpty(), status = it.simpleStatus ?: it.status) },
         coverage = simpleCoverage,
+        index = index?.let { section ->
+            section.copy(
+                lines = section.simpleLines,
+                leftOut = section.simpleLeftOut,
+                contradicted = section.simpleContradicted,
+                footer = when (val footer = section.footer) {
+                    is IndexFooter.End -> IndexFooter.End(footer.simpleText)
+                    is IndexFooter.Loading -> IndexFooter.Loading(footer.simpleText)
+                    is IndexFooter.Paused -> IndexFooter.Paused(footer.simpleText)
+                    is IndexFooter.Refused -> footer.copy(text = footer.simpleText)
+                    IndexFooter.More -> footer
+                },
+            )
+        },
     )
     else -> this
 }

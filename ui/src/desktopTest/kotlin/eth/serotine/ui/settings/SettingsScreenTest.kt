@@ -46,6 +46,7 @@ class SettingsScreenTest {
         networks: List<NetworkRow> = listOf(sepolia),
         turningOff: TurnOffConfirmation? = null,
         metered: MeteredDownloadsItem? = MeteredDownloadsItem(on = false, text = METERED_DOWNLOADS_OFF),
+        addressIndex: AddressIndexItem? = null,
     ) = rule.setContent {
         SerotineTheme {
             SettingsScreen(
@@ -59,6 +60,7 @@ class SettingsScreenTest {
                     detailedView = detailedView,
                     turningOff = turningOff,
                     meteredDownloads = metered,
+                    addressIndex = addressIndex,
                 ),
                 onCurrency = { currencyOpened++ },
                 onTokens = { tokensOpened++ },
@@ -70,11 +72,58 @@ class SettingsScreenTest {
                 onCancelTurnOff = { turnOffsCancelled++ },
                 onDetailedViewChange = { detailedViewChanges += it },
                 onMeteredDownloadsChange = { meteredChoices += it },
+                onAddressIndexChange = { addressIndexChoices += it },
             )
         }
     }
 
     private val meteredChoices = mutableListOf<Boolean>()
+    private val addressIndexChoices = mutableListOf<Boolean>()
+
+    @Test
+    fun aHostWithoutTheAddr1SettingShowsNoRowForIt() {
+        show()
+
+        rule.onNodeWithTag(SETTINGS_ADDRESS_INDEX_TAG).assertDoesNotExist()
+    }
+
+    @Test
+    fun theGreyedAddr1SettingSaysWhatItNeedsOnATapAndChangesNothing() {
+        show(
+            addressIndex = AddressIndexItem(
+                on = false,
+                text = "Off: no importer key is pinned in this release yet",
+                unavailableReason = "No importer key is pinned in this release yet.",
+            ),
+        )
+
+        rule.onNodeWithTag(SETTINGS_ADDRESS_INDEX_TAG).performScrollTo().performClick()
+        rule.onNodeWithText("No importer key is pinned in this release yet.").assertExists()
+        assertEquals(emptyList(), addressIndexChoices)
+    }
+
+    @Test
+    fun aStoredChoiceIsTurnedOffWhileTheRowIsGreyedOut() {
+        show(
+            addressIndex = AddressIndexItem(
+                on = false,
+                text = "Off: no importer key is pinned in this release yet",
+                unavailableReason = "No importer key is pinned in this release yet.",
+                turnOff = true,
+            ),
+        )
+
+        rule.onNodeWithText("Turn off").performScrollTo().performClick()
+        assertEquals(listOf(false), addressIndexChoices)
+    }
+
+    @Test
+    fun theAddr1SettingNamesItsKeyAndATapOnItsRowTurnsItOn() {
+        show(addressIndex = AddressIndexItem(on = false, text = "Off: importer 0xAbc, pinned in this release"))
+
+        rule.onNodeWithTag(SETTINGS_ADDRESS_INDEX_TAG).performScrollTo().assertIsOff().performClick()
+        assertEquals(listOf(true), addressIndexChoices)
+    }
 
     @Test
     fun aFreshCheckpointAppliedIsSaidUnderItsNetworksRow() {

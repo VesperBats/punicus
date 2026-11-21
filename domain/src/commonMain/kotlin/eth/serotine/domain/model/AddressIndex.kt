@@ -125,7 +125,11 @@ data class AddressIndexCoverage(
  * What a verified transaction entry is, as the engine read it from the verified block: the transaction [hash]
  * (`0x` and 64 lower-case hex digits), sent by [from] to [to] (null for a contract creation) with [value], and
  * [transfer], the first ERC-20 or ERC-721 `Transfer` among its logs that the address is a party of (null: none),
- * never the protocol's log of an ETH transfer (EIP-7708, [TokenTransfers.ETH]): the ether it moves is [value].
+ * never the protocol's log of an ETH transfer (EIP-7708, [TokenTransfers.ETH]): the ether it would move is [value].
+ * [succeeded] is its verified receipt's status: true when it succeeded, false when it reverted, and null when it is
+ * not known. **The engine does not report it yet** (Myotis's per-entry check carries the hash, from, to, value and
+ * transfer only), so it is null today: [value] is then a fact of the transaction, never a claim that it moved, since a
+ * reverted transaction keeps its value field and moves nothing.
  */
 data class AddressIndexTransaction(
     val hash: String,
@@ -133,6 +137,7 @@ data class AddressIndexTransaction(
     val to: Address?,
     val value: Wei,
     val transfer: TokenTransfer?,
+    val succeeded: Boolean? = null,
 ) {
     init {
         require(isHash(hash)) { "a transaction hash is 0x and 64 lower-case hex digits" }

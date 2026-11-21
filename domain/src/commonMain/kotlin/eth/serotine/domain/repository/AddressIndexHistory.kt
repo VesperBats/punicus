@@ -23,6 +23,14 @@ import eth.serotine.domain.model.Network
 interface AddressIndexHistory {
 
     /**
+     * Whether this build's engine has the Swarm reader at all (Myotis's `supportsAddressHistory`): false when every
+     * call is refused with [AddressIndexRefusal.NotInThisBuild], whatever it asks. It asks no peer, wakes no chain
+     * and names no account, so Settings can grey the setting out before any account's history is read. True does not
+     * promise an answer: a call may still be refused for any other reason. Never throws.
+     */
+    suspend fun hasReader(): Boolean
+
+    /**
      * One page of [address]'s history, newest first: [network] is the chain whose index is read, [address] the
      * address whose entries it lists, and [query] which page and which entries (each of its fields applied or the
      * call refused). [AddressIndexReading.Page] with the page, or [AddressIndexReading.Refused] and why. Its entries

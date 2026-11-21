@@ -51,8 +51,19 @@ class ActivityDetailScreenTest {
                 onCopy = { copied += it },
                 onStatus = { statuses += it },
                 onAddToken = { added += it },
+                onRetry = { retries++ },
             )
         }
+    }
+
+    private var retries = 0
+
+    @Test
+    fun aCheckThatCouldNotBeMadeNowOffersTryAgain() {
+        show(ActivityDetailUiState.Unavailable("Alice", "Still catching up.", retry = true))
+
+        rule.onNodeWithText("Try again").performClick()
+        assertEquals(1, retries)
     }
 
     @Test

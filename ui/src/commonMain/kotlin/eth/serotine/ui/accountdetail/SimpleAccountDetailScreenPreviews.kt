@@ -2,12 +2,18 @@ package eth.serotine.ui.accountdetail
 
 import androidx.compose.runtime.Composable
 import eth.serotine.domain.model.AccountKind
+import eth.serotine.domain.model.Address
+import eth.serotine.domain.model.AddressIndexRole
 import eth.serotine.ui.accounts.UnreachableNetwork
 import eth.serotine.ui.activity.ActivityKey
 import eth.serotine.ui.activity.ActivityRow
 import eth.serotine.ui.activity.ActivityState
 import eth.serotine.ui.activity.ActivityUiState
+import eth.serotine.ui.activity.IndexEntryKey
+import eth.serotine.ui.activity.IndexFooter
+import eth.serotine.ui.activity.IndexSection
 import eth.serotine.ui.components.Control
+import eth.serotine.ui.components.Eip55
 import eth.serotine.ui.components.NetworkLabel
 import eth.serotine.ui.ScreenPreview
 import eth.serotine.ui.theme.SerotineTheme
@@ -241,6 +247,52 @@ private fun SimpleAccountActivityPreview() = SimpleAccountDetailPreview(
     ),
 )
 
+/**
+ * The Activity with the addr1 index's rows, in simple mode's words: no block number, the publisher's key named, and
+ * its end marker in words (owner ruling, 2026-11-21, #334).
+ */
+@Preview
+@Composable
+private fun SimpleAccountActivityIndexPreview() = SimpleAccountDetailPreview(
+    main.copy(
+        segment = DetailSegment.ACTIVITY,
+        activity = ActivityUiState.Shown(
+            rows = listOf(
+                ActivityRow(
+                    key = "index:23590120:7",
+                    title = "Received 0.5 ETH",
+                    detail = "From Family Safe · 0xdbF0…C6FB",
+                    about = FAMILY_SAFE,
+                    time = "Block 23,590,120",
+                    status = "Finalized in block 23,590,120 · checked against the chain",
+                    state = ActivityState.DONE,
+                    opens = ActivityKey(
+                        "0x" + "d4".repeat(32),
+                        index = IndexEntryKey(23_590_120, 7, setOf(AddressIndexRole.TO)),
+                    ),
+                    simpleTime = null,
+                    simpleStatus = "Final",
+                ),
+            ),
+            coverage = "Transactions sent from this device.",
+            simpleCoverage = "Activity since you added it.",
+            index = IndexSection(
+                lines = emptyList(),
+                simpleLines = listOf(
+                    "Older activity also comes from a shared index, each entry checked against the chain. Whether " +
+                        "it is complete rests on its publisher, key " +
+                        "${Eip55.format(Address.of("0x" + "1e".repeat(20)))}: some activity may be missing.",
+                    "It hasn't reached the newest activity yet.",
+                ),
+                footer = IndexFooter.End(
+                    "The addr1 index starts at block 23,000,000: nothing older comes from it.",
+                    "The shared index starts here: nothing older comes from it.",
+                ),
+            ),
+        ),
+    ),
+)
+
 /** A Safe on Gnosis Chain: its threshold and network on its blockie, its owners checked on chain. */
 @Preview
 @Composable
@@ -344,4 +396,5 @@ internal val simpleAccountDetailScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("hidden-dark") { SimpleAccountHiddenDarkPreview() },
     ScreenPreview("nfts") { SimpleAccountNftsPreview() },
     ScreenPreview("activity-queued") { SimpleAccountActivityQueuedPreview() },
+    ScreenPreview("activity-index") { SimpleAccountActivityIndexPreview() },
 )

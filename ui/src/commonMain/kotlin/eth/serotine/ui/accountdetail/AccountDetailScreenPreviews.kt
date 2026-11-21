@@ -6,17 +6,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import eth.serotine.domain.model.AccountKind
+import eth.serotine.domain.model.Address
+import eth.serotine.domain.model.AddressIndexRole
 import eth.serotine.ui.activity.ActivityKey
 import eth.serotine.ui.activity.ActivityRow
 import eth.serotine.ui.activity.ActivityState
 import eth.serotine.ui.activity.ActivityUiState
+import eth.serotine.ui.activity.IndexEntryKey
+import eth.serotine.ui.activity.IndexFooter
+import eth.serotine.ui.activity.IndexSection
 import eth.serotine.ui.activity.WaitingStep
 import eth.serotine.ui.components.Control
+import eth.serotine.ui.components.Eip55
 import eth.serotine.ui.components.LightClientHealth
 import eth.serotine.ui.components.LightClientItem
 import eth.serotine.ui.components.NetworkLabel
 import eth.serotine.ui.components.POOL_AVERAGE
 import eth.serotine.ui.components.catchingUpStripSample
+import eth.serotine.ui.components.shortAddress
 import eth.serotine.ui.components.staleStripSample
 import eth.serotine.ui.components.verifiedStripSample
 import eth.serotine.ui.ScreenPreview
@@ -961,6 +968,259 @@ private fun AccountDetailNftsNonePreview() = AccountDetailPreview(
     daily.copy(nfts = NftSection(empty = "No NFTs found", note = "Received since block 8,100,000")),
 )
 
+/** A made-up importer key of the addr1 index: no release pins it. */
+private val sampleImporter = Eip55.format(Address.of("0x" + "1e".repeat(20)))
+
+/** What the addr1 index is and what it rests on, the importer named in full (owner ruling, 2026-11-21, #334). */
+private val indexIntro = "Also from the addr1 index on Swarm, each entry checked against the chain before it is " +
+    "listed. Which entries it holds rests on its importer, $sampleImporter, pinned in this release: entries may " +
+    "be missing."
+
+/** Its coverage and head gap, as a page read says them. */
+private val indexLines = listOf(
+    indexIntro,
+    "It covers blocks 9,000,000 to 9,412,800: older blocks are not in it.",
+    "It has not reached the newest blocks yet, blocks 9,412,801 to 9,412,950.",
+)
+
+/** Two verified rows of the addr1 index, among a transaction sent from here, by block. */
+private val indexActivityRows = listOf(
+    activityRows[1],
+    ActivityRow(
+        key = "index:9412300:4",
+        title = "Received 0.5 ETH",
+        detail = "From Treasury · 0xfB69…d359",
+        about = "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359",
+        time = "Block 9,412,300",
+        status = "Finalized in block 9,412,300 · checked against the chain",
+        state = ActivityState.DONE,
+        opens = ActivityKey("0x" + "4c".repeat(32), index = IndexEntryKey(9_412_300, 4, setOf(AddressIndexRole.TO))),
+    ),
+    ActivityRow(
+        key = "index:9380102:12",
+        title = "Named in a transaction",
+        detail = "By Bob · 0x5aAe…eAed · a log's topic",
+        about = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+        time = "Block 9,380,102",
+        status = "In block 9,380,102 · checked against the chain, not final yet",
+        state = ActivityState.DONE,
+        opens = ActivityKey(
+            "0x" + "4d".repeat(32),
+            index = IndexEntryKey(9_380_102, 12, setOf(AddressIndexRole.TOPIC)),
+        ),
+    ),
+)
+
+/** The Activity with the addr1 index's [section] and [rows]. */
+private fun indexActivity(section: IndexSection, rows: List<ActivityRow> = indexActivityRows) = daily.copy(
+    segment = DetailSegment.ACTIVITY,
+    activity = ActivityUiState.Shown(rows, ACTIVITY_COVERAGE, index = section),
+)
+
+/** A page of verified rows from the addr1 index, more below: the next loads as the list nears its end. */
+@Preview
+@Composable
+private fun AccountDetailActivityIndexPreview() =
+    AccountDetailPreview(indexActivity(IndexSection(indexLines, IndexFooter.More)))
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexDarkPreview() =
+    AccountDetailPreview(indexActivity(IndexSection(indexLines, IndexFooter.More)), darkTheme = true)
+
+/** Its first page being read and checked: a ghost row holds its room. */
+@Preview
+@Composable
+private fun AccountDetailActivityIndexLoadingPreview() = AccountDetailPreview(
+    indexActivity(
+        IndexSection(listOf(indexIntro), IndexFooter.Loading(INDEX_READING)),
+        rows = listOf(activityRows[1]),
+    ),
+)
+
+/** The next page being read, below the rows. */
+@Preview
+@Composable
+private fun AccountDetailActivityIndexLoadingMorePreview() = AccountDetailPreview(
+    indexActivity(
+        IndexSection(indexLines, IndexFooter.Loading("Reading more of the addr1 index and checking its entries…")),
+        // One row, so that the footer below it is in sight.
+        rows = listOf(indexActivityRows[1]),
+    ),
+)
+
+/** The end of what the index covers: its end marker says where it starts. */
+@Preview
+@Composable
+private fun AccountDetailActivityIndexEndPreview() = AccountDetailPreview(
+    indexActivity(
+        IndexSection(
+            indexLines,
+            IndexFooter.End("The addr1 index starts at block 9,000,000: nothing older comes from it."),
+        ),
+        rows = listOf(indexActivityRows[1]),
+    ),
+)
+
+/** Every range it does not cover: an open head gap, and gaps inside it. */
+@Preview
+@Composable
+private fun AccountDetailActivityIndexGapsPreview() = AccountDetailPreview(
+    indexActivity(
+        IndexSection(
+            listOf(
+                indexIntro,
+                "It covers the blocks from the first to 9,412,800.",
+                "It has not reached the blocks from 9,412,801 on yet.",
+                "Inside it, ranges could not be read: blocks 9,100,000 to 9,100,999, block 9,250,000. Entries " +
+                    "there may be missing.",
+            ),
+            IndexFooter.More,
+        ),
+        rows = indexActivityRows.take(2),
+    ),
+)
+
+/** Entries left out: those that could not be verified, and apart, as a warning, those the chain contradicts. */
+@Preview
+@Composable
+private fun AccountDetailActivityIndexLeftOutPreview() = AccountDetailPreview(
+    indexActivity(
+        IndexSection(
+            listOf(indexIntro),
+            IndexFooter.More,
+            leftOut = "3 entries of the index are left out: they could not be verified.",
+            contradicted = "Warning: the importer's index contradicts the chain in 1 entry, left out. An index " +
+                "that says something the chain proves false may also leave entries out or be wrong elsewhere; " +
+                "its importer is ${shortAddress(sampleImporter)}.",
+        ),
+        rows = indexActivityRows.take(2),
+    ),
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexLeftOutDarkPreview() = AccountDetailPreview(
+    indexActivity(
+        IndexSection(
+            listOf(indexIntro),
+            IndexFooter.More,
+            leftOut = "3 entries of the index are left out: they could not be verified.",
+            contradicted = "Warning: the importer's index contradicts the chain in 1 entry, left out. An index " +
+                "that says something the chain proves false may also leave entries out or be wrong elsewhere; " +
+                "its importer is ${shortAddress(sampleImporter)}.",
+        ),
+        rows = indexActivityRows.take(2),
+    ),
+    darkTheme = true,
+)
+
+/** The last page added no row: the next is read only on a tap, saying what that page left out. */
+private val indexPaused = IndexFooter.Paused(
+    "The last page of the addr1 index added no row: 48 entries could not be verified, 1 entry contradicts the " +
+        "chain. The next is read only when you ask, since each page fetches old blocks from archive peers.",
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexPausedPreview() =
+    AccountDetailPreview(indexActivity(IndexSection(listOf(indexIntro), indexPaused), rows = listOf(activityRows[1])))
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexPausedDarkPreview() = AccountDetailPreview(
+    indexActivity(IndexSection(listOf(indexIntro), indexPaused), rows = listOf(activityRows[1])),
+    darkTheme = true,
+)
+
+private const val INDEX_READING = "Reading the addr1 index from Swarm and checking its entries…"
+
+/**
+ * Why nothing (more) comes from the addr1 index: [text], with Try again when asking again may answer ([retry]), in
+ * the error's colour for the checkpoint table's alarm ([warning]). Never an empty list.
+ */
+@Composable
+private fun AccountDetailActivityIndexRefused(text: String, retry: Boolean = false, warning: Boolean = false) =
+    AccountDetailPreview(
+        indexActivity(
+            IndexSection(listOf(indexIntro), IndexFooter.Refused(text, retry, warning)),
+            rows = listOf(activityRows[1]),
+        ),
+    )
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexNotInThisBuildPreview() = AccountDetailActivityIndexRefused(
+    "This build's engine has no Swarm reader, so nothing comes from the addr1 index here.",
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexSettingOffPreview() = AccountDetailActivityIndexRefused(
+    "The engine reads no addr1 index: the experimental setting is off. Settings → Experimental turns it on.",
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexTorPreview() = AccountDetailActivityIndexRefused(
+    "Tor routing is on, and the addr1 index is not read over Tor: nothing comes from it while Tor is on.",
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexNetworkNotServedPreview() = AccountDetailActivityIndexRefused(
+    "The addr1 index is not read for Sepolia here.",
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexCheckpointAlarmPreview() = AccountDetailActivityIndexRefused(
+    "The engine's checkpoint table and the beacon chain disagree, so nothing that rests on the table is shown, " +
+        "the index's rows among it. The engine says: checkpoint table alarm: block 9,000,960 is not the table's",
+    warning = true,
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexStaleAnchorPreview() = AccountDetailActivityIndexRefused(
+    "Sepolia's light client is parked on a checkpoint too old to catch up from, so no entry can be checked. " +
+        "Accounts shows the ways on.",
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexNoEnginePreview() = AccountDetailActivityIndexRefused(
+    "No light client runs for Sepolia on this device, so no entry of the index can be checked.",
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexWrongImporterPreview() = AccountDetailActivityIndexRefused(
+    "The index read is signed by ${Eip55.format(Address.of("0x" + "2e".repeat(20)))}, not by the importer " +
+        "pinned in this release, $sampleImporter: none of its entries is shown, and no more is read.",
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexRejectedPreview() = AccountDetailActivityIndexRefused(
+    "The engine refused the request (unknown cursor). That is a bug in Punicus or the engine: nothing more " +
+        "comes from the index until it is fixed.",
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexSyncingPreview() = AccountDetailActivityIndexRefused(
+    "The light client is still catching up, so the index's entries cannot be checked yet.",
+    retry = true,
+)
+
+@Preview
+@Composable
+private fun AccountDetailActivityIndexUnprovenPreview() = AccountDetailActivityIndexRefused(
+    "Swarm or the peers did not deliver what the index or its check needs right now.",
+    retry = true,
+)
+
 /** Every preview above, which AccountDetailScreenPreviewsTest renders: a new preview goes in here too. */
 internal val accountDetailScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("assets") { AccountDetailAssetsPreview() },
@@ -1014,4 +1274,25 @@ internal val accountDetailScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("activity-queued-conflict-dark") { AccountDetailActivityQueuedConflictPreview() },
     ScreenPreview("gnosis-pay-owners") { AccountDetailGnosisPayOwnersPreview() },
     ScreenPreview("gnosis-pay-controlled") { AccountDetailGnosisPayControlledPreview() },
+    ScreenPreview("activity-index") { AccountDetailActivityIndexPreview() },
+    ScreenPreview("activity-index-dark") { AccountDetailActivityIndexDarkPreview() },
+    ScreenPreview("activity-index-loading") { AccountDetailActivityIndexLoadingPreview() },
+    ScreenPreview("activity-index-loading-more") { AccountDetailActivityIndexLoadingMorePreview() },
+    ScreenPreview("activity-index-end") { AccountDetailActivityIndexEndPreview() },
+    ScreenPreview("activity-index-gaps") { AccountDetailActivityIndexGapsPreview() },
+    ScreenPreview("activity-index-left-out") { AccountDetailActivityIndexLeftOutPreview() },
+    ScreenPreview("activity-index-left-out-dark") { AccountDetailActivityIndexLeftOutDarkPreview() },
+    ScreenPreview("activity-index-not-in-this-build") { AccountDetailActivityIndexNotInThisBuildPreview() },
+    ScreenPreview("activity-index-setting-off") { AccountDetailActivityIndexSettingOffPreview() },
+    ScreenPreview("activity-index-tor") { AccountDetailActivityIndexTorPreview() },
+    ScreenPreview("activity-index-network-not-served") { AccountDetailActivityIndexNetworkNotServedPreview() },
+    ScreenPreview("activity-index-checkpoint-alarm") { AccountDetailActivityIndexCheckpointAlarmPreview() },
+    ScreenPreview("activity-index-stale-anchor") { AccountDetailActivityIndexStaleAnchorPreview() },
+    ScreenPreview("activity-index-no-engine") { AccountDetailActivityIndexNoEnginePreview() },
+    ScreenPreview("activity-index-wrong-importer") { AccountDetailActivityIndexWrongImporterPreview() },
+    ScreenPreview("activity-index-rejected") { AccountDetailActivityIndexRejectedPreview() },
+    ScreenPreview("activity-index-syncing") { AccountDetailActivityIndexSyncingPreview() },
+    ScreenPreview("activity-index-unproven") { AccountDetailActivityIndexUnprovenPreview() },
+    ScreenPreview("activity-index-paused") { AccountDetailActivityIndexPausedPreview() },
+    ScreenPreview("activity-index-paused-dark") { AccountDetailActivityIndexPausedDarkPreview() },
 )

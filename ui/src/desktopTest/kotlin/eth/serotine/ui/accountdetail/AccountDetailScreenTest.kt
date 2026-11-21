@@ -38,12 +38,18 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
 import eth.serotine.domain.model.AccountKind
+import eth.serotine.domain.model.AddressIndexRole
+import eth.serotine.ui.activity.ACTIVITY_INDEX_FOOTER_TAG
 import eth.serotine.ui.activity.ACTIVITY_ROW_TAG
 import eth.serotine.ui.activity.ActivityKey
 import eth.serotine.ui.activity.ActivityOrder
 import eth.serotine.ui.activity.ActivityRow
 import eth.serotine.ui.activity.ActivityState
 import eth.serotine.ui.activity.ActivityUiState
+import eth.serotine.ui.activity.IndexEntryKey
+import eth.serotine.ui.activity.IndexFooter
+import eth.serotine.ui.activity.IndexSection
+import eth.serotine.ui.activity.ordered
 import eth.serotine.ui.components.Control
 import eth.serotine.ui.components.GHOST_ROWS_UNKNOWN
 import eth.serotine.ui.components.GHOST_ROW_TAG
@@ -108,6 +114,7 @@ class AccountDetailScreenTest {
                 onSafeSettings = { events += "safe settings" },
                 onGnosisPay = { events += "gnosis pay" },
                 onToggleUnlistedNfts = { events += "toggle unlisted nfts" },
+                onMoreActivity = { events += "more activity" },
                 perAppActions = PerAppActions(
                     onOpen = { chain, address -> events += "open per-app $chain $address" },
                     onRestore = { phrase -> events += "restore per-app $phrase" },
@@ -883,5 +890,87 @@ class AccountDetailScreenTest {
 
         rule.onAllNodesWithTag(GHOST_ROW_TAG, useUnmergedTree = true).assertCountEquals(GHOST_ROWS_UNKNOWN)
         rule.onNodeWithContentDescription("Reading the Safe's storage").assertExists()
+    }
+
+    private val indexRow = ActivityRow(
+        key = "index:9412300:4",
+        title = "Received 0.5 ETH",
+        detail = "From Treasury · 0xfB69…d359",
+        about = "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359",
+        time = "Block 9,412,300",
+        status = "Finalized in block 9,412,300 · checked against the chain",
+        state = ActivityState.DONE,
+        opens = ActivityKey("0x" + "4c".repeat(32), index = IndexEntryKey(9_412_300, 4, setOf(AddressIndexRole.TO))),
+    )
+
+    private fun indexed(footer: IndexFooter, contradicted: String? = null) = ready.copy(
+        segment = DetailSegment.ACTIVITY,
+        activity = ActivityUiState.Shown(
+            listOf(indexRow),
+            "Transactions sent from this device.",
+            index = IndexSection(
+                listOf("Also from the addr1 index on Swarm: entries may be missing."),
+                footer,
+                leftOut = "2 entries of the index are left out: they could not be verified.",
+                contradicted = contradicted,
+            ),
+        ),
+    )
+
+    @Test
+    fun theAddr1IndexsRowsAreListedWithItsLinesAndTheListNearingItsEndAsksForMore() {
+        show(indexed(IndexFooter.More, contradicted = "Warning: the importer's index contradicts the chain."))
+
+        rule.onNodeWithText("Also from the addr1 index on Swarm: entries may be missing.").assertExists()
+        rule.onNodeWithText("2 entries of the index are left out: they could not be verified.").assertExists()
+        rule.onNodeWithText("Warning: the importer's index contradicts the chain.").assertExists()
+        rule.onNodeWithText("Received 0.5 ETH").performClick()
+        rule.waitForIdle()
+
+        assertEquals(1, events.count { it == "more activity" }, "the footer composed asks once")
+        assertEquals("open activity ${indexRow.opens}", events.last())
+    }
+
+    @Test
+    fun aRefusalOfTheAddr1IndexIsSaidAndAPassingOneOffersTryAgain() {
+        show(indexed(IndexFooter.Refused("The light client is still catching up.", retry = true)))
+
+        rule.onNodeWithTag(ACTIVITY_INDEX_FOOTER_TAG).performScrollTo()
+        rule.onNodeWithText("The light client is still catching up.").assertExists()
+        rule.onNodeWithText("Try again").performClick()
+
+        assertEquals(listOf("more activity"), events)
+    }
+
+    @Test
+    fun oldestFirstTheAddr1IndexLoadsOlderEntriesOnlyOnATap() {
+        show(indexed(IndexFooter.More).let { it.copy(activity = it.activity.ordered(ActivityOrder.OLDEST_FIRST)) })
+        rule.waitForIdle()
+
+        assertEquals(emptyList(), events, "above the rows, in sight from the start: nothing read by itself")
+        rule.onNodeWithText("Load older entries").performClick()
+        assertEquals(listOf("more activity"), events)
+    }
+
+    @Test
+    fun afterAPageThatAddedNoRowTheAddr1IndexReadsOnOnlyOnATap() {
+        show(indexed(IndexFooter.Paused("The last page of the addr1 index added no row.")))
+        rule.waitForIdle()
+
+        assertEquals(emptyList(), events, "nothing read by itself")
+        rule.onNodeWithTag(ACTIVITY_INDEX_FOOTER_TAG).performScrollTo()
+        rule.onNodeWithText("The last page of the addr1 index added no row.").assertExists()
+        rule.onNodeWithText("Load older entries").performClick()
+        assertEquals(listOf("more activity"), events, "a tap reads exactly one page")
+    }
+
+    @Test
+    fun theEndOfTheAddr1IndexsCoverageIsMarkedAndAsksForNothing() {
+        show(indexed(IndexFooter.End("The addr1 index starts at block 9,000,000: nothing older comes from it.")))
+
+        rule.onNodeWithTag(ACTIVITY_INDEX_FOOTER_TAG).performScrollTo()
+        rule.onNodeWithText("The addr1 index starts at block 9,000,000: nothing older comes from it.").assertExists()
+        rule.onNodeWithText("Try again").assertDoesNotExist()
+        assertEquals(emptyList(), events)
     }
 }

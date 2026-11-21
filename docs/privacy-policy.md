@@ -4,7 +4,7 @@ Punicus is a wallet app for Ethereum accounts and Safe accounts. It runs on
 your device. This page says what it keeps there and what reaches anyone else.
 Its developer runs no server for Punicus and receives nothing from the app.
 
-Last updated: 2026-11-15.
+Last updated: 2026-11-21.
 
 ## What Punicus does not do
 
@@ -17,7 +17,10 @@ Last updated: 2026-11-15.
   of its users anywhere.
 - **No RPC provider, no indexer, no price API.** Balances, prices, names and
   history come from the light client built into the app (Myotis), which
-  verifies what it reads (docs/embedding-myotis.md).
+  verifies what it reads (docs/embedding-myotis.md). On the desktop, an
+  experimental setting, off by default, lets it also read an address index
+  from Swarm, each entry checked against the chain before it is shown
+  (below).
 - **No ads, and nothing sold or shared.** The app shows no ads and has no
   data to sell.
 
@@ -93,6 +96,24 @@ service in between. If you choose CoW Protocol for a swap, its order API
 learns your address, the tokens, the amounts and your IP address, for that
 swap. With Uniswap chosen, CoW is never contacted (docs/swaps.md).
 
+### Swarm peers and archive peers (only on the desktop, with the experimental addr1 history on)
+
+On the desktop, Settings → Experimental has *Account history from the addr1
+index*, off by default. Only while it is on, the light client also reads an
+account's history from the addr1 address index, published on Swarm, a
+peer-to-peer storage network, by an importer whose key the release pins.
+
+- Opening an account's Activity makes the light client's own Swarm node
+  fetch that account's part of the index from Swarm peers. They see your
+  device's IP address and which part of the index is asked for, which can
+  tell them the account. That node does not go through Tor.
+- Each entry is then checked against the chain: the light client fetches
+  old blocks and their receipts from archive peers of the peer-to-peer
+  network. They learn which past blocks matter to you, older ones than the
+  history above reaches included.
+- The Swarm peers and archive peers are not run by Punicus. With the setting
+  off, which it is unless you turn it on, none of this happens.
+
 ### Another wallet app (only if you hand a transfer to one)
 
 On Android you can hand a transfer to another wallet app on the device as a
@@ -107,6 +128,8 @@ IP address. Their privacy policies apply.
 - Catch up from an old checkpoint instead of fetching a fresh one, and the
   checkpoint servers are never contacted.
 - Keep Uniswap as the swap venue, and CoW is never contacted.
+- Leave the desktop's experimental addr1 history off, and no Swarm peer is
+  asked for your history.
 - Remove an account or the app to delete what is stored for it.
 
 ## Children
