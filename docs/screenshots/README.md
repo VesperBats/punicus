@@ -22,8 +22,8 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 | [Create Safe](#create-safe) | `create-safe/` | 19 |
 | [Display currency](#currency) | `currency/` | 4 |
 | [dApp connection request](#dapp-proposal) | `dapp-proposal/` | 28 |
-| [dApp signing request](#dapp-request) | `dapp-request/` | 27 |
-| [dApp transaction](#dapp-transaction) | `dapp-transaction/` | 42 |
+| [dApp signing request](#dapp-request) | `dapp-request/` | 34 |
+| [dApp transaction](#dapp-transaction) | `dapp-transaction/` | 44 |
 | [Debug](#debug) | `debug/` | 6 |
 | [Add account from the same phrase](#derive-account) | `derive-account/` | 10 |
 | [First start (dialog)](#first-run-dialog) | `first-run-dialog/` | 2 |
@@ -389,7 +389,7 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 <a name="dapp-request"></a>
 ## dApp signing request
 
-`dapp-request/`, 27 states: `sign-in`, `sign-in-dark`, `biometrics`, `other-site`, `message`, `hex`, `refused`, `wrong-password`, `signing`, `explaining`, `ended`, `loading`, `approval`, `approval-dark`, `unlimited`, `swap-order`, `not-decoded`, `typed-described`, `typed-described-dark`, `typed-describing`, `typed-contract-changed`, `other-network`, `real-funds`, `real-funds-dark`, `per-app`, `per-app-other-site`, `per-app-linked`
+`dapp-request/`, 34 states: `sign-in`, `sign-in-dark`, `biometrics`, `other-site`, `message`, `hex`, `refused`, `wrong-password`, `signing`, `explaining`, `ended`, `loading`, `approval`, `approval-dark`, `unlimited`, `swap-order`, `not-decoded`, `typed-described`, `typed-described-dark`, `typed-describing`, `typed-contract-changed`, `other-network`, `real-funds`, `real-funds-dark`, `per-app`, `per-app-other-site`, `per-app-linked`, `safe-transfer`, `safe-transfer-dark`, `safe-batch`, `safe-module`, `safe-message`, `session-grant`, `session-grant-dark`
 
 <a href="dapp-request/sign-in.png"><img src="dapp-request/sign-in.png" width="206" alt="sign-in"></a>
 <a href="dapp-request/sign-in-dark.png"><img src="dapp-request/sign-in-dark.png" width="206" alt="sign-in-dark"></a>
@@ -418,11 +418,18 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 <a href="dapp-request/per-app.png"><img src="dapp-request/per-app.png" width="206" alt="per-app"></a>
 <a href="dapp-request/per-app-other-site.png"><img src="dapp-request/per-app-other-site.png" width="206" alt="per-app-other-site"></a>
 <a href="dapp-request/per-app-linked.png"><img src="dapp-request/per-app-linked.png" width="206" alt="per-app-linked"></a>
+<a href="dapp-request/safe-transfer.png"><img src="dapp-request/safe-transfer.png" width="206" alt="safe-transfer"></a>
+<a href="dapp-request/safe-transfer-dark.png"><img src="dapp-request/safe-transfer-dark.png" width="206" alt="safe-transfer-dark"></a>
+<a href="dapp-request/safe-batch.png"><img src="dapp-request/safe-batch.png" width="206" alt="safe-batch"></a>
+<a href="dapp-request/safe-module.png"><img src="dapp-request/safe-module.png" width="206" alt="safe-module"></a>
+<a href="dapp-request/safe-message.png"><img src="dapp-request/safe-message.png" width="206" alt="safe-message"></a>
+<a href="dapp-request/session-grant.png"><img src="dapp-request/session-grant.png" width="206" alt="session-grant"></a>
+<a href="dapp-request/session-grant-dark.png"><img src="dapp-request/session-grant-dark.png" width="206" alt="session-grant-dark"></a>
 
 <a name="dapp-transaction"></a>
 ## dApp transaction
 
-`dapp-transaction/`, 42 states: `payment`, `payment-dark`, `token-transfer`, `approval`, `not-decoded`, `described`, `described-dark`, `described-nested`, `described-partly`, `described-approval`, `described-unlisted`, `describing`, `contract-changed`, `code-not-checked`, `not-as-described`, `quoting`, `not-quoted`, `refused`, `safe`, `safe-dark`, `safe-no-owner`, `safe-signing`, `safe-queued`, `sending`, `not-sent`, `explaining`, `ended`, `loading`, `real-funds`, `real-funds-dark`, `traced`, `traced-dark`, `trace-disagrees`, `trace-disagrees-dark`, `trace-reverts`, `tracing`, `not-traced-here`, `not-traced-in-time`, `traced-nothing-logged`, `not-traced-unavailable`, `safe-traced`, `traced-again`
+`dapp-transaction/`, 44 states: `payment`, `payment-dark`, `token-transfer`, `approval`, `not-decoded`, `described`, `described-dark`, `described-nested`, `described-partly`, `described-approval`, `described-unlisted`, `describing`, `contract-changed`, `code-not-checked`, `not-as-described`, `quoting`, `not-quoted`, `refused`, `safe`, `safe-dark`, `safe-no-owner`, `safe-signing`, `safe-queued`, `sending`, `not-sent`, `explaining`, `ended`, `loading`, `real-funds`, `real-funds-dark`, `traced`, `traced-dark`, `trace-disagrees`, `trace-disagrees-dark`, `trace-reverts`, `tracing`, `not-traced-here`, `not-traced-in-time`, `traced-nothing-logged`, `not-traced-unavailable`, `safe-traced`, `traced-again`, `safe-execution`, `safe-execution-dark`
 
 <a href="dapp-transaction/payment.png"><img src="dapp-transaction/payment.png" width="206" alt="payment"></a>
 <a href="dapp-transaction/payment-dark.png"><img src="dapp-transaction/payment-dark.png" width="206" alt="payment-dark"></a>
@@ -466,6 +473,8 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 <a href="dapp-transaction/not-traced-unavailable.png"><img src="dapp-transaction/not-traced-unavailable.png" width="206" alt="not-traced-unavailable"></a>
 <a href="dapp-transaction/safe-traced.png"><img src="dapp-transaction/safe-traced.png" width="206" alt="safe-traced"></a>
 <a href="dapp-transaction/traced-again.png"><img src="dapp-transaction/traced-again.png" width="206" alt="traced-again"></a>
+<a href="dapp-transaction/safe-execution.png"><img src="dapp-transaction/safe-execution.png" width="206" alt="safe-execution"></a>
+<a href="dapp-transaction/safe-execution-dark.png"><img src="dapp-transaction/safe-execution-dark.png" width="206" alt="safe-execution-dark"></a>
 
 <a name="debug"></a>
 ## Debug
