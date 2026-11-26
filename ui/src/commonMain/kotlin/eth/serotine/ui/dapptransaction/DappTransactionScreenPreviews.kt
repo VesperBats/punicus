@@ -555,7 +555,7 @@ private val executionCow = eth.serotine.domain.model.Token(
 
 private val safeExecution = payment.copy(
     name = "Safe{Wallet}",
-    url = "https://app.safe.global",
+    url = "https://app.example.org",
     network = "On Ethereum, real funds",
     to = "0x425E7c0C12E60Bc7Fe106AC3b44FA9D0602CA0AB",
     value = "0 ETH",

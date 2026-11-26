@@ -401,7 +401,7 @@ private fun previewSafeTx(to: Address, data: ByteArray, operation: SafeOperation
 private fun safeTxState(tx: SafeTx, refusal: String? = null, warnings: List<String> = emptyList()) = signIn.copy(
     title = "Safe transaction to sign",
     name = "Safe{Wallet}",
-    url = "https://app.safe.global",
+    url = "https://app.example.org",
     signIn = emptyList(),
     typed = true,
     network = "On Ethereum, real funds",
@@ -461,7 +461,7 @@ private val safeModule = safeTxState(
 private val safeMessage = signIn.copy(
     title = "Safe message to sign",
     name = "Safe{Wallet}",
-    url = "https://app.safe.global",
+    url = "https://app.example.org",
     signIn = emptyList(),
     typed = true,
     network = "On Ethereum, real funds",
@@ -480,7 +480,7 @@ private val safeMessage = signIn.copy(
 private val sessionGrant = signIn.copy(
     title = "Session key to grant",
     name = "ENS",
-    url = "https://app.ens.domains",
+    url = "https://app.example.org",
     signIn = emptyList(),
     typed = true,
     network = "On Ethereum, real funds",
