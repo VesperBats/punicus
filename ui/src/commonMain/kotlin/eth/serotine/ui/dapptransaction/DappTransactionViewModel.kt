@@ -37,6 +37,7 @@ import eth.serotine.domain.repository.ReadUnavailable
 import eth.serotine.domain.usecase.SafeTxRefusal
 import eth.serotine.domain.usecase.DappSignContent
 import eth.serotine.domain.usecase.DappSignRefusal
+import eth.serotine.domain.usecase.DappSignWarning
 import eth.serotine.domain.usecase.DappTransactionQuote
 import eth.serotine.domain.usecase.DappTransactionQuoting
 import eth.serotine.domain.usecase.DappTransactionSending
@@ -348,6 +349,23 @@ class DappTransactionViewModel(
                 // The claims of a call the app does not decode are its description's: wait for the lookup.
                 describeJob?.join()
                 val meaning = transaction.meaning
+                if (meaning is DappCallMeaning.SafeExecution) {
+                    // An Execute is traced as the Safe's own call, as screen 17 traces it: what the Safe runs, held
+                    // against what it is decoded as. A delegate call is refused, and not traced.
+                    val call = meaning.call
+                    val action = call.action(meaning.safe)
+                    if (call.operation == eth.serotine.domain.model.SafeOperation.DELEGATECALL) {
+                        traced.value = null
+                        return@launch
+                    }
+                    val claims = if (action is SafeTxAction.ContractCall) description.value?.let(TraceClaims::of)
+                    else TraceClaims.ofSafeAction(action, meaning.safe)
+                    val outcome = traceCall.trace(network, meaning.safe, call.to, call.value, call.data, claims)
+                    traced.value = withContext(formatOn) {
+                        TraceText.section(outcome, meaning.safe, network).copy(note = TraceText.SAFE_CALL_NOTE)
+                    }
+                    return@launch
+                }
                 val claims = if (meaning is DappCallMeaning.NotDecoded) description.value?.let(TraceClaims::of)
                 else TraceClaims.ofMeaning(meaning, transaction.to)
                 val outcome = traceCall.trace(network, review.address, transaction.to, transaction.value, transaction.data, claims)
@@ -867,6 +885,10 @@ class DappTransactionViewModel(
             dataSize = DappRequestViewModel.bytesLine(transaction.dataSize),
             warnings = buildList {
                 if (transaction.meaning is DappCallMeaning.NotDecoded) add(NOT_DECODED)
+                // The review's own, D6's not-decoded line aside: an unusual Safe call among them.
+                review.warnings.filterNot { it == DappSignWarning.NOT_DECODED }.sorted()
+                    .forEach { add(DappRequestViewModel.warningLine(it, review.perApp)) }
+                if (transaction.meaning is DappCallMeaning.SafeApproveHash) add(APPROVE_HASH_WARNING)
                 // An approval is flagged by what the call is, whatever any description says or whether one does.
                 if (transaction.meaning is DappCallMeaning.TokenApproval || ClearSignFormatter.grantsApproval(transaction.data)) {
                     add(APPROVAL_NOTE)
@@ -909,6 +931,7 @@ class DappTransactionViewModel(
                 hash = null,
                 reading = reading,
                 signer = review.address,
+                executing = true,
             ),
         )
     }
@@ -919,8 +942,13 @@ class DappTransactionViewModel(
      */
     private fun withDescription(state: DappTransactionUiState, result: ClearSignResult?, busy: Boolean): DappTransactionUiState =
         if (state.safeTx != null) {
-            // The Safe transaction's call: its description goes on its own card, as screen 17 shows one.
-            state.copy(safeTx = state.safeTx.copy(action = state.safeTx.action.withDescription(result, busy)))
+            // The Safe transaction's call: its description goes on its own card, as screen 17 shows one, and the
+            // line saying it is not decoded goes.
+            val notDecoded = DappRequestViewModel.warningLine(DappSignWarning.SAFE_CALL_NOT_DECODED, null)
+            state.copy(
+                safeTx = state.safeTx.copy(action = state.safeTx.action.withDescription(result, busy)),
+                warnings = if (result is ClearSignResult.ClearSigned) state.warnings - notDecoded else state.warnings,
+            )
         } else when (result) {
             is ClearSignResult.ClearSigned -> {
                 val partly = ClearSignedText.partlyNotDecoded(result)
@@ -1028,6 +1056,11 @@ class DappTransactionViewModel(
 
         fun refusalLine(refusal: DappSignRefusal): String = DappRequestViewModel.refusalLine(refusal)
 
+        /** An on-chain approval of a Safe transaction this call does not hold: what it approves is not known here. */
+        const val APPROVE_HASH_WARNING = "This approves, on chain and for good, a Safe transaction Punicus cannot " +
+            "see: only its hash is in the call, so neither what it does nor the Safe refusals can be checked. Find " +
+            "the transaction by its hash where it was proposed, and approve only if you know it."
+
         private fun amountOf(amount: UInt256, token: Token?, address: String): String = when {
             amount == UInt256.MAX -> "an unlimited amount of ${token?.symbol ?: "the token"}"
             token != null -> "${amount.formatUnits(token.decimals)} ${token.symbol}"
@@ -1043,6 +1076,9 @@ class DappTransactionViewModel(
             is DappCallMeaning.SafeExecution -> "Executes a transaction of the Safe ${Eip55.format(meaning.safe)} that " +
                 "its owners signed: the Safe runs it now, at its nonce then. What it does is decoded below. This " +
                 "account pays the fee."
+            is DappCallMeaning.SafeExecutionNotDecoded -> "Calls execTransaction on ${Eip55.format(meaning.safe)}, " +
+                "but its data is not exactly that function's: the Safe would still run a transaction from it, which " +
+                "Punicus cannot read."
             is DappCallMeaning.SafeApproveHash -> "Approves, on chain and as one of its owners, the transaction of " +
                 "the Safe ${Eip55.format(meaning.safe)} whose hash is 0x${meaning.hash.hex}. What that transaction " +
                 "does is not in this call: check it where it was proposed, by its hash."
@@ -1067,6 +1103,7 @@ class DappTransactionViewModel(
                 SignInField("Owners' signatures", "${meaning.call.signaturesSize} bytes, checked by the Safe when it runs"),
             )
             is DappCallMeaning.SafeApproveHash -> listOf(SignInField("Safe transaction hash", "0x${meaning.hash.hex}"))
+            is DappCallMeaning.SafeExecutionNotDecoded -> emptyList()
             DappCallMeaning.Payment -> emptyList()
         }
     }

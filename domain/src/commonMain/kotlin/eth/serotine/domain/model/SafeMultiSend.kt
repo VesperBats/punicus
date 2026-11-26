@@ -28,6 +28,15 @@ object SafeMultiSend {
         Address.of("0xa83c336b20401af773b6219ba5027174338d1836"), // 1.5.0
     )
 
+    /**
+     * The 1.5.0 deployments, which read a call to the zero address as a call of the Safe itself
+     * (`to := or(to, mul(iszero(to), address()))`, under the delegate call); 1.3.0 and 1.4.1 do not.
+     */
+    val ZERO_IS_SELF: Set<Address> = setOf(
+        Address.of("0x218543288004cd07832472d464648173c77d7eb7"),
+        Address.of("0xa83c336b20401af773b6219ba5027174338d1836"),
+    )
+
     /** The most calls a batch is read with: a longer one is not decoded. */
     const val MAX_CALLS = 64
 

@@ -177,11 +177,111 @@ class DappSafeDecodingTest {
         val grant = meaning.grants.grants.single()
         assertEquals(safe, grant.account)
         assertEquals(UInt256.of(1), grant.chainId)
-        assertNull(grant.expires, "2^256 - 1 never expires")
+        assertNull(grant.enableBy, "2^256 - 1: no date")
         assertTrue(grant.anyCall)
         assertTrue(grant.sudo)
         assertTrue(grant.signsMessages)
         assertEquals(setOf(DappSignWarning.SESSION_KEY_GRANT, DappSignWarning.NO_CHAIN_ID), review.warnings)
+    }
+
+    @Test
+    fun anExecTransactionNotDecodedExactlyIsRefusedSinceTheSafeStillRunsIt() {
+        val enable = safeTx(safe, "610b5925".hexToBytes() + word(recipient))
+        val exact = SafeExecCall.data(enable, ByteArray(65))
+        // One trailing byte: the Safe ignores it and enables the module all the same.
+        val padded = request(DappAsk.SendTransaction(DappTransactionRequest(owner.address, safe, UInt256.ZERO, exact + byteArrayOf(0), null)))
+        val review = review(padded)
+        assertIs<DappCallMeaning.SafeExecutionNotDecoded>((review.content as DappSignContent.Transaction).transaction.meaning)
+        assertEquals(DappSignRefusal.SAFE_TX_REFUSED, review.refusal)
+        assertEquals(SafeTxRefusal.UndecodedSelfCall, review.safeTxRefusal)
+        // Decoded exactly, it is refused for what it does.
+        val decoded = review(request(DappAsk.SendTransaction(DappTransactionRequest(owner.address, safe, UInt256.ZERO, exact, null))))
+        assertEquals(SafeTxRefusal.ModuleEnabled(recipient), decoded.safeTxRefusal)
+    }
+
+    @Test
+    fun safe150sMultiSendReadsTheZeroAddressAsTheSafeItself() {
+        val batch = SafeMultiSend.data(
+            listOf(BatchedCall(SafeOperation.CALL, Address.ZERO, UInt256.ZERO, "610b5925".hexToBytes() + word(recipient))),
+        )
+        val v150 = Address.of("0xa83c336b20401af773b6219ba5027174338d1836")
+        val v141 = Address.of("0x9641d764fc13c8b624c04430c7356c1c7c8102e2")
+        assertEquals(
+            listOf(SafeTxAction.SettingsChange(SafeSettingsChange.ModuleEnabled(recipient))),
+            assertIs<SafeTxAction.Batch>(SafeTxAction.of(safe, safeTx(v150, batch, SafeOperation.DELEGATECALL))).calls,
+        )
+        assertIs<SafeTxAction.ContractCall>(
+            assertIs<SafeTxAction.Batch>(SafeTxAction.of(safe, safeTx(v141, batch, SafeOperation.DELEGATECALL))).calls.single(),
+        )
+    }
+
+    private val safeAccount = Account(Network.ETHEREUM, safe, AccountKind.SAFE, "Safe", AccountCustody.Watched)
+    private val accounts = ListAccountRepository(owner)
+
+    /** A 2-of-3 Safe, as the light client reads it; [kind] set to change that. */
+    private val kind = kotlinx.coroutines.flow.MutableStateFlow<eth.serotine.domain.repository.KindReading>(
+        eth.serotine.domain.repository.KindReading.Verified(
+            eth.serotine.domain.repository.AddressKind.Safe(
+                eth.serotine.domain.repository.SafeState(
+                    "1.4.1", l2 = false, listOf(owner.address, recipient, cow), 2, 55, emptyList(), null,
+                ),
+            ),
+            100,
+        ),
+    )
+    private val observeSafe = ObserveSafe(
+        object : eth.serotine.domain.repository.AddressKinds {
+            override fun observeKind(network: Network, address: Address) = kind
+        },
+        accounts,
+    )
+    private val networks = object : eth.serotine.domain.repository.NetworkSettings {
+        override fun observe() = kotlinx.coroutines.flow.flowOf(setOf(Network.ETHEREUM))
+        override suspend fun setEnabled(network: Network, on: Boolean): Boolean = error("not used")
+    }
+    private val requests = object : eth.serotine.domain.repository.DappRequests {
+        val waiting = kotlinx.coroutines.flow.MutableStateFlow<List<DappRequest>>(emptyList())
+        override fun observe() = waiting
+        override suspend fun answerSignature(request: DappRequestId, signature: eth.serotine.domain.model.Signature) =
+            eth.serotine.domain.repository.DappAnswer.DELIVERED
+        override suspend fun answerNull(request: DappRequestId) = error("not used")
+        override suspend fun answerChainSwitch(request: DappRequestId, network: Network) = error("not used")
+        override suspend fun answerTransaction(request: DappRequestId, hash: String) = error("not used")
+        override suspend fun refuse(request: DappRequestId, why: eth.serotine.domain.repository.DappRequestError) =
+            error("not used")
+        override suspend fun recordSafeTx(request: DappRequestId, safeTx: eth.serotine.domain.model.Digest) = error("not used")
+    }
+    private val signer = FakeSigner(FakeRecovery())
+
+    /** `changeThreshold(3)` on a Safe of three owners: an n-of-n, which needs a recovery module (#54). */
+    private val toThree = safeTx(safe, "694e80c3".hexToBytes() + UInt256.of(3).toBytes32())
+
+    @Test
+    fun aSafeTxLeavingTheSafeAnNofNIsRefusedWhenSignedAgainstItsVerifiedOwners() = kotlinx.coroutines.test.runTest {
+        val asked = typed(toThree.typedData(Network.ETHEREUM.chainId, safe))
+        requests.waiting.value = listOf(asked)
+        val sign = SignDappMessage(requests, accounts, networks, signer, observeSafe, clock = { now })
+        assertEquals(DappMessageSigning.SafeTxRefused(SafeTxRefusal.NeedsRecoveryModule(3)), sign(asked.id, eth.serotine.domain.repository.Unlock.WithBiometrics("x")))
+        // A Safe that cannot be read is not signed for either.
+        kind.value = eth.serotine.domain.repository.KindReading.Unavailable(eth.serotine.domain.repository.ReadUnavailable.NO_ENGINE)
+        assertEquals(
+            DappMessageSigning.SafeTxRefused(SafeTxRefusal.SafeUnavailable(eth.serotine.domain.repository.ReadUnavailable.NO_ENGINE)),
+            sign(asked.id, eth.serotine.domain.repository.Unlock.WithBiometrics("x")),
+        )
+    }
+
+    @Test
+    fun anExecuteLeavingTheSafeAnNofNIsRefusedWhenQuoted() = kotlinx.coroutines.test.runTest {
+        val exec = request(
+            DappAsk.SendTransaction(DappTransactionRequest(owner.address, safe, UInt256.ZERO, SafeExecCall.data(toThree, ByteArray(65)), null)),
+        )
+        requests.waiting.value = listOf(exec)
+        val quote = QuoteDappTransaction(
+            requests, accounts, networks, ListCatalog(), FakeNativeBalances(), FakeTransactionInputs(), MemorySentTransfers(),
+            MemoryTransactionHistory(), outbox = eth.serotine.domain.repository.Outbox.None, observeSafe = observeSafe,
+            clock = { now },
+        )
+        assertEquals(DappTransactionQuoting.SafeTxRefused(SafeTxRefusal.NeedsRecoveryModule(3)), quote(exec.id))
     }
 
     private fun word(address: Address) = ByteArray(12) + address.hex.removePrefix("0x").hexToBytes()

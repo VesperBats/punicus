@@ -37,6 +37,8 @@ class DappTransactionRequest(
             else -> Erc20.transferOf(callData)?.let { DappCallMeaning.TokenTransfer(to, it.to, it.amount) }
                 ?: Erc20.approveOf(callData)?.let { DappCallMeaning.TokenApproval(to, it.spender, it.amount) }
                 ?: SafeExecCall.of(callData)?.let { DappCallMeaning.SafeExecution(to, it) }
+                // On chain the Safe still runs one it does not read as exactly: trailing bytes, any offset.
+                ?: DappCallMeaning.SafeExecutionNotDecoded(to).takeIf { SafeExecCall.isExecTransaction(callData) }
                 ?: SafeExecCall.approvedHashOf(callData)?.let { DappCallMeaning.SafeApproveHash(to, it) }
                 ?: DappCallMeaning.NotDecoded(callData.copyOf(4).toHex().takeIf { callData.size >= 4 })
         }
@@ -74,6 +76,13 @@ sealed interface DappCallMeaning {
      * WalletConnect to send one to execute a transaction (docs/walletconnect.md, *A Safe transaction to sign*).
      */
     data class SafeExecution(val safe: Address, val call: SafeExecCall) : DappCallMeaning
+
+    /**
+     * A call of `execTransaction` on [safe] whose data is not exactly that function's encoding (a trailing byte, an
+     * offset of its own, a dirty address word): the Safe would still run a transaction from it, which is not known
+     * here, so it is refused as a call of the Safe not decoded exactly.
+     */
+    data class SafeExecutionNotDecoded(val safe: Address) : DappCallMeaning
 
     /**
      * A Safe's `approveHash(hash)`, called on [safe]: the sender approves, on chain and as an owner, the Safe
@@ -176,6 +185,10 @@ class SafeExecCall(
                 signaturesSize = signatures.size,
             )
         }
+
+        /** Whether [data] starts with `execTransaction`'s selector, decoded exactly or not. */
+        fun isExecTransaction(data: ByteArray): Boolean =
+            data.size >= AbiWords.SELECTOR && data.copyOf(AbiWords.SELECTOR).contentEquals(EXEC_TRANSACTION)
 
         /** The hash [data] approves when it is exactly the call data of `approveHash(bytes32)`; null otherwise. */
         fun approvedHashOf(data: ByteArray): Digest? {

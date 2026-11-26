@@ -349,9 +349,14 @@ private fun safeTxRefusalOf(content: DappSignContent, network: Network): SafeTxR
         val tx = meaning.tx
         safeCallRefusal(network, meaning.safe, tx.to, SafeTxAction.of(meaning.safe, tx), tx.operation, SafeTxGasTerms.of(tx))
     }
-    is DappSignContent.Transaction -> (content.transaction.meaning as? DappCallMeaning.SafeExecution)?.let { meaning ->
-        val call = meaning.call
-        safeCallRefusal(network, meaning.safe, call.to, call.action(meaning.safe), call.operation, call.gasTerms)
+    is DappSignContent.Transaction -> when (val meaning = content.transaction.meaning) {
+        is DappCallMeaning.SafeExecution -> {
+            val call = meaning.call
+            safeCallRefusal(network, meaning.safe, call.to, call.action(meaning.safe), call.operation, call.gasTerms)
+        }
+        // What the Safe would run is not known here, so none of the refusals can be checked.
+        is DappCallMeaning.SafeExecutionNotDecoded -> SafeTxRefusal.UndecodedSelfCall
+        else -> null
     }
     is DappSignContent.Message -> null
 }

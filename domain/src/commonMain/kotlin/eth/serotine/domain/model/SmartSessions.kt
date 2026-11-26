@@ -72,7 +72,7 @@ data class SmartSessionGrants(val grants: List<SmartSessionGrant>) {
             return SmartSessionGrant(
                 chainId = Eip712.unsignedOf(chainSession.getValue("chainId")),
                 account = address(session.getValue("account")),
-                expires = expires.toLongOrNull()?.takeIf { it <= MAX_DATE_SECONDS },
+                enableBy = expires.toLongOrNull()?.takeIf { it <= MAX_DATE_SECONDS },
                 nonce = Eip712.unsignedOf(session.getValue("nonce")),
                 actions = permissions.items("actions").map { item ->
                     val action = (item as TypedValue.Struct).fields
@@ -123,14 +123,17 @@ data class SmartSessionGrants(val grants: List<SmartSessionGrant>) {
 
 /**
  * One chain's session of a [SmartSessionGrants]: on chain [chainId], whoever holds the session key ([validator]
- * checks its signatures; [keyOwners] when that is Rhinestone's OwnableValidator) may act for [account] until
- * [expires] (unix seconds; null: never), through the [actions] allowed, sign messages for it under
- * [messagePolicies], and claim its locked funds under [claimPolicies].
+ * checks its signatures; [keyOwners] when that is Rhinestone's OwnableValidator) may act for [account] through the
+ * [actions] allowed, sign messages for it under [messagePolicies], and claim its locked funds under [claimPolicies].
+ *
+ * [enableBy] (unix seconds; null: no date) is when the grant can no longer be enabled, the only time Smart Sessions
+ * v2 checks (`SmartSessionManager._enableSession`). Once enabled the session has no end of its own: it lasts until
+ * it is removed, unless one of its policies limits its time, which Punicus does not read.
  */
 data class SmartSessionGrant(
     val chainId: UInt256,
     val account: Address,
-    val expires: Long?,
+    val enableBy: Long?,
     val nonce: UInt256,
     val actions: List<SessionAction>,
     /** The policies that allow the session to sign messages for the account (EIP-1271); empty: none. */

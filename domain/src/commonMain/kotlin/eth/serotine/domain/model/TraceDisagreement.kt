@@ -49,8 +49,9 @@ data class TraceClaims(
             DappCallMeaning.Payment -> TraceClaims(emptySet(), currency = true, addresses = setOf(to), grantsRight = false)
             is DappCallMeaning.TokenTransfer -> TraceClaims(setOf(meaning.token), false, setOf(meaning.recipient), false)
             is DappCallMeaning.TokenApproval -> TraceClaims(setOf(meaning.token), false, setOf(meaning.spender), true)
-            // What the Safe runs is held against its own trace, not this call's: no claims here.
-            is DappCallMeaning.SafeExecution, is DappCallMeaning.SafeApproveHash, is DappCallMeaning.NotDecoded -> null
+            // An Execute is traced as the Safe's own call, against ofSafeAction's claims; the outer call has none.
+            is DappCallMeaning.SafeExecution, is DappCallMeaning.SafeExecutionNotDecoded,
+            is DappCallMeaning.SafeApproveHash, is DappCallMeaning.NotDecoded -> null
         }
 
         /** A Safe transaction's claims as screen 17 decodes it, for [account] (the Safe); null when not decoded. */

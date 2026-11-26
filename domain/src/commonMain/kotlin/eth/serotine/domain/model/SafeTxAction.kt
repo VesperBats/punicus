@@ -111,10 +111,15 @@ sealed interface SafeTxAction {
                 if (depth <= MAX_BATCH_DEPTH && SafeMultiSend.isBatcher(to)) {
                     SafeMultiSend.callsOf(data)?.let { calls ->
                         val callOnly = to in SafeMultiSend.MULTI_SEND_CALL_ONLY
+                        // 1.5.0 reads the zero address as the Safe itself: decoded as the call it is.
+                        val zeroIsSelf = to in SafeMultiSend.ZERO_IS_SELF
                         return Batch(
                             to,
                             callOnly,
-                            calls.map { of(safe, it.to, it.value, it.data, it.operation, depth + 1) },
+                            calls.map {
+                                val target = if (zeroIsSelf && it.to == Address.ZERO) safe else it.to
+                                of(safe, target, it.value, it.data, it.operation, depth + 1)
+                            },
                         )
                     }
                 }

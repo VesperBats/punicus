@@ -374,6 +374,8 @@ class DappRequestViewModelTest {
         )
     }
 
+    private val traced = mutableListOf<Triple<Address, Address, eth.serotine.domain.model.UInt256>>()
+
     private fun TestScope.viewModel(id: Long = 1): DappRequestViewModel {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val observe = ObserveDappMessages(requests, accounts, networks, tokens, aliases, clock = { now })
@@ -388,9 +390,11 @@ class DappRequestViewModelTest {
             RefuseDappRequest(requests, accounts, networks, clock = { now }),
             DescribeKeyStore(keys),
             observeSafe,
+            eth.serotine.ui.dapptransaction.tracing(tokens, backgroundScope, traced),
             clock = { clock },
             formatTime = { "at $it" },
             ticks = ticks.map { },
+            formatOn = kotlinx.coroutines.Dispatchers.Unconfined,
         )
         backgroundScope.launch { vm.uiState.collect {} }
         runCurrent()
@@ -475,6 +479,9 @@ class DappRequestViewModelTest {
         assertNull(section.safeWarning)
         assertNull(state.refusal)
         assertTrue(state.warnings.isEmpty(), "${state.warnings}")
+        // Traced as the Safe's own call, as screen 17 traces one.
+        assertEquals(Triple(safe, usdc.address, eth.serotine.domain.model.UInt256.ZERO), traced.last())
+        assertEquals(eth.serotine.ui.components.TraceText.SAFE_CALL_NOTE, section.action.trace?.note)
         vm.onPasswordChange("correct horse")
         vm.sign()
         runCurrent()

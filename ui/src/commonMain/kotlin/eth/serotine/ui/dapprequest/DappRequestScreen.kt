@@ -84,6 +84,7 @@ fun DappRequestRoute(
         onDismissExplanation = viewModel::dismissExplanation,
         onBack = onBack,
         modifier = modifier,
+        onRetrace = viewModel::retrace,
     )
 }
 
@@ -108,6 +109,8 @@ fun DappRequestScreen(
     onDismissExplanation: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** A Safe transaction's trace asked for again. */
+    onRetrace: () -> Unit = {},
 ) {
     state.explaining?.let { UnavailableDialog(UnavailableNotice(it.title, it.reason), onDismissExplanation) }
     Scaffold(
@@ -180,7 +183,7 @@ fun DappRequestScreen(
             Text(state.network, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
             if (state.typed) {
-                TypedDataSections(state)
+                TypedDataSections(state, onRetrace)
             } else if (state.signIn.isNotEmpty()) {
                 Heading("The sign-in")
                 state.signIn.forEach { field ->
@@ -283,7 +286,7 @@ fun DappRequestScreen(
 
 /** Screen D5's part: what typed data lets someone do, when decoded; its domain; and every field. */
 @Composable
-private fun TypedDataSections(state: DappRequestUiState) {
+private fun TypedDataSections(state: DappRequestUiState, onRetrace: () -> Unit) {
     state.meaning?.let { meaning ->
         Heading("What signing it lets someone do")
         Text(meaning, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
@@ -292,7 +295,7 @@ private fun TypedDataSections(state: DappRequestUiState) {
             Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error)
         }
         state.meaningFields.forEach { Field(it) }
-        state.safeTx?.let { DappSafeTxBlock(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+        state.safeTx?.let { DappSafeTxBlock(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), onRetrace) }
     }
     if (state.safeTx == null && (state.describing || state.described != null || state.notDescribed != null)) {
         Heading("What signing it lets someone do")

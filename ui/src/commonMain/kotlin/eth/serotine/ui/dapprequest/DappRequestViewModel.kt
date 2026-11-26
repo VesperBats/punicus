@@ -36,6 +36,14 @@ import eth.serotine.domain.model.TypedDataMeaning
 import eth.serotine.domain.usecase.ObserveSafe
 import eth.serotine.domain.usecase.SafeReading
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import eth.serotine.domain.model.TraceClaims
+import eth.serotine.domain.repository.ReadUnavailable
+import eth.serotine.domain.usecase.TraceCall
+import eth.serotine.domain.usecase.TraceOutcome
+import eth.serotine.ui.components.TraceSection
+import eth.serotine.ui.components.TraceText
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onStart
@@ -166,8 +174,12 @@ class DappRequestViewModel(
     private val describeKeyStore: DescribeKeyStore,
     /** The Safe a `SafeTx` or a `SafeMessage` is for, read by the light client. */
     private val observeSafe: ObserveSafe,
+    /** A `SafeTx`'s call traced as the Safe's own at the verified head (docs/clear-signing.md, *Phase B*). */
+    private val traceCall: TraceCall,
     private val clock: () -> Long = ::epochSecondsNow,
     private val formatTime: (Long) -> String = ::formatDateTime,
+    /** Where a trace is put in words: its size is the dApp's to choose, so never on the main thread. */
+    private val formatOn: CoroutineDispatcher = Dispatchers.Default,
     /** When how long the dApp waits is said again: every 15 seconds while the screen is open. */
     ticks: Flow<Unit> = every15Seconds(),
 ) : ViewModel() {
@@ -226,8 +238,46 @@ class DappRequestViewModel(
         }
     }
 
+    /** A `SafeTx`'s call as traced, once traced; null before, or for other data. */
+    private val traced = MutableStateFlow<TraceSection?>(null)
+    private var traceJob: Job? = null
+
+    /**
+     * Traces a `SafeTx`'s call at the verified head as the Safe's own call, as screen 17 does, once the description
+     * is looked up, and holds it against what the call claims: its description, or what it is decoded as. A
+     * refused one (a delegate call among them) is not traced. The last trace stays shown while the next is read.
+     */
+    fun retrace() {
+        traceJob?.cancel()
+        traceJob = viewModelScope.launch {
+            val review = observeDappMessages().first().find { it.request.id == id } ?: return@launch
+            val safeTx = (review.content as? DappSignContent.Typed)?.meaning as? TypedDataMeaning.SafeTransaction
+                ?: return@launch
+            val network = review.request.network ?: return@launch
+            if (review.refusal != null) return@launch
+            val tx = safeTx.tx
+            val action = SafeTxAction.of(safeTx.safe, tx)
+            traced.update { it?.copy(tracing = true) ?: TraceSection(tracing = true) }
+            traced.value = try {
+                describeJob?.join()
+                val claims = if (action is SafeTxAction.ContractCall) description.value?.let(TraceClaims::of)
+                else TraceClaims.ofSafeAction(action, safeTx.safe)
+                val tracedAt = clock()
+                val outcome = traceCall.trace(network, safeTx.safe, tx.to, tx.value, tx.data, claims)
+                withContext(formatOn) {
+                    TraceText.section(outcome, safeTx.safe, network, tracedAt).copy(note = TraceText.SAFE_CALL_NOTE)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                TraceText.section(TraceOutcome.Unavailable(ReadUnavailable.UNPROVEN), safeTx.safe, network)
+            }
+        }
+    }
+
     init {
         describe()
+        retrace()
         // A check that could not be made a moment ago (the light client catching up) is made again, every tick,
         // for as long as that is the answer: a refused read costs nothing.
         viewModelScope.launch {
@@ -257,7 +307,7 @@ class DappRequestViewModel(
         }
         .distinctUntilChanged()
 
-    private val described = combine(description, describing) { result, busy -> result to busy }
+    private val described = combine(description, describing, traced) { result, busy, trace -> Triple(result, busy, trace) }
 
     /** The Safe the typed data is for, as the light client reads it now; null for other data, or before. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -277,7 +327,7 @@ class DappRequestViewModel(
             } else {
                 DappRequestUiState(loading = false, gone = true, done = local.done)
             }
-        val base = withDescription(withSafe(plain, review, reading), review, described.first, described.second)
+        val base = withDescription(withSafe(plain, review, reading, described.third), review, described.first, described.second)
         base.copy(
             waits = waitsLine(review.request.expiresAtSeconds - clock()),
             unlock = local.unlock,
@@ -348,7 +398,12 @@ class DappRequestViewModel(
         }
 
     /** [state] with its Safe transaction's block, the Safe as [reading] says (null: not read yet). */
-    private fun withSafe(state: DappRequestUiState, review: DappMessageReview, reading: SafeReading?): DappRequestUiState {
+    private fun withSafe(
+        state: DappRequestUiState,
+        review: DappMessageReview,
+        reading: SafeReading?,
+        trace: TraceSection?,
+    ): DappRequestUiState {
         val content = review.content as? DappSignContent.Typed ?: return state
         val meaning = content.meaning as? TypedDataMeaning.SafeTransaction ?: return state
         val network = review.request.network ?: return state
@@ -364,7 +419,7 @@ class DappRequestViewModel(
                 hash = "0x" + content.typed.digest.hex,
                 reading = reading,
                 signer = review.address,
-            ),
+            ).let { section -> section.copy(action = section.action.copy(trace = trace)) },
         )
     }
 
@@ -396,8 +451,13 @@ class DappRequestViewModel(
     ): DappRequestUiState {
         if (!state.typed) return state
         state.safeTx?.let { section ->
-            // A Safe transaction's call: its description goes on its own card, as screen 17 shows one.
-            return state.copy(safeTx = section.copy(action = section.action.withDescription(result, busy)))
+            // A Safe transaction's call: its description goes on its own card, as screen 17 shows one, and the
+            // line saying it is not decoded goes.
+            val notDecodedCall = warningLine(DappSignWarning.SAFE_CALL_NOT_DECODED, review.perApp)
+            return state.copy(
+                safeTx = section.copy(action = section.action.withDescription(result, busy)),
+                warnings = if (result is ClearSignResult.ClearSigned) state.warnings - notDecodedCall else state.warnings,
+            )
         }
         val notDecoded = warningLine(DappSignWarning.NOT_DECODED, review.perApp)
         return when (result) {
@@ -414,8 +474,11 @@ class DappRequestViewModel(
         }
     }
 
-    /** The screen is shown again: the typed data is described again, from fresh verified state. */
-    fun onShown() = describe()
+    /** The screen is shown again: the typed data is described, and a Safe's call traced, again, from fresh state. */
+    fun onShown() {
+        describe()
+        retrace()
+    }
 
     /** The password field now reads [text]. */
     fun onPasswordChange(text: String) = local.update {

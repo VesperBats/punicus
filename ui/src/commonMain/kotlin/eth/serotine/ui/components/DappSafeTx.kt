@@ -51,9 +51,11 @@ internal fun dappSafeTxSection(
     hash: String?,
     reading: SafeReading?,
     signer: Address,
+    /** D6's Execute: [signer] sends it, owner or not, and signs nothing for the Safe. */
+    executing: Boolean = false,
 ): DappSafeTxSection {
     val item = safeTxActionItem(action, nonce, tokens.map { DecodingToken(it) }, network)
-    val (line, warning) = safeLine(reading, nonce, signer)
+    val (line, warning) = safeLine(reading, nonce, signer, executing)
     return DappSafeTxSection(
         safeAddress = Eip55.format(safe),
         safeLine = line,
@@ -66,7 +68,8 @@ internal fun dappSafeTxSection(
 }
 
 /** What the light client says of the Safe now, and what to know of it before signing, or null. */
-private fun safeLine(reading: SafeReading?, nonce: Long?, signer: Address): Pair<String, String?> = when (reading) {
+private fun safeLine(reading: SafeReading?, nonce: Long?, signer: Address, executing: Boolean): Pair<String, String?> =
+    when (reading) {
     null, SafeReading.Checking -> "Checking the Safe with the light client…" to null
     SafeReading.NotASafe -> "Not a Safe Punicus recognises, as its verified code says." to
         "This address holds no Safe Punicus recognises: what this data means to it is not known here. Sign it " +
@@ -81,15 +84,16 @@ private fun safeLine(reading: SafeReading?, nonce: Long?, signer: Address): Pair
             nonce < state.nonce -> "at nonce ${state.nonce}: this one's nonce is used, so it can never run"
             else -> "at nonce ${state.nonce}: ${nonce - state.nonce} run before this one"
         }
-        val owner = if (signer in state.owners) {
-            "You sign as one of its owners."
-        } else {
-            "The account asked is not one of its owners: its signature does not count."
+        val owner = when {
+            // Any account may execute: the owners' signatures are in the call.
+            executing -> "This account executes it and pays the fee; the owners' signatures are in the call."
+            signer in state.owners -> "You sign as one of its owners."
+            else -> "The account asked is not one of its owners: its signature does not count."
         }
         "A Safe ${state.version}, verified by the light client: ${state.threshold} of $owners, $at. $owner" to
-            "The account asked is not one of this Safe's owners.".takeIf { signer !in state.owners }
+            "The account asked is not one of this Safe's owners.".takeIf { !executing && signer !in state.owners }
     }
-}
+    }
 
 /** Test tag of a dApp's Safe transaction block, for UI tests. */
 const val DAPP_SAFE_TX_TAG = "dapp-safe-tx"
@@ -100,7 +104,7 @@ const val DAPP_SAFE_TX_TAG = "dapp-safe-tx"
  * and its gas and refund terms, with their warning.
  */
 @Composable
-fun DappSafeTxBlock(section: DappSafeTxSection, modifier: Modifier = Modifier) {
+fun DappSafeTxBlock(section: DappSafeTxSection, modifier: Modifier = Modifier, onRetrace: () -> Unit = {}) {
     Column(
         modifier.testTag(DAPP_SAFE_TX_TAG),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -125,7 +129,7 @@ fun DappSafeTxBlock(section: DappSafeTxSection, modifier: Modifier = Modifier) {
         section.safeWarning?.let {
             Text(it, color = MaterialTheme.colorScheme.error)
         }
-        SafeTxActionCard(section.action)
+        SafeTxActionCard(section.action, onRetrace = onRetrace)
         section.nonce?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         section.hash?.let { hash ->
             Text("Safe transaction hash", style = MaterialTheme.typography.labelMedium)

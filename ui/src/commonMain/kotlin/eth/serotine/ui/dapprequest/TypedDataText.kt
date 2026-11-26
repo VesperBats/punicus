@@ -85,7 +85,8 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
             listOfNotNull(
                 SESSION_ANY_CALL.takeIf { grant.anyCall },
                 SESSION_SUDO.takeIf { grant.sudo },
-                SESSION_NEVER_EXPIRES.takeIf { grant.expires == null },
+                // Smart Sessions sets no end to a session once enabled; no time policy is read here.
+                SESSION_NEVER_EXPIRES,
                 SESSION_SIGNS_MESSAGES.takeIf { grant.signsMessages },
                 SESSION_GENERIC.takeIf { grant.genericPolicy },
             )
@@ -136,7 +137,13 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
                         add(SignInField("Account$label", Eip55.format(grant.account)))
                         add(SignInField("Network$label", network(grant.chainId)))
                         add(SignInField("Allowed calls$label", actions(grant)))
-                        add(SignInField("Until$label", grant.expires?.let(formatTime) ?: "Never: it does not expire"))
+                        add(SignInField("Lasts$label", "Until it is removed from the account: Smart Sessions sets no end"))
+                        add(
+                            SignInField(
+                                "Can be enabled until$label",
+                                grant.enableBy?.let(formatTime) ?: "Any time: no date",
+                            ),
+                        )
                         add(
                             SignInField(
                                 "Signs messages for the account$label",
@@ -166,7 +173,7 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
         val unlimited = grants.any { it.anyCall && it.sudo }
         return "Grants a session key the power to act for $accounts on $chains" +
             (if (unlimited) ": any call, to any contract, with no limit" else ", within the policies below") +
-            (if (grants.any { it.expires == null }) ", for ever" else "") +
+            ", until it is removed" +
             ". Whoever holds the key may then use it without asking you again (Smart Sessions)."
     }
 
@@ -297,7 +304,8 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
         const val SESSION_ANY_CALL = "The session may call any contract, any function, as the account."
         const val SESSION_SUDO = "Its policy is the SudoPolicy: nothing limits what the session does, its amounts " +
             "included. Whoever holds the session key can move everything the account holds."
-        const val SESSION_NEVER_EXPIRES = "It never expires: it lasts until it is removed from the account."
+        const val SESSION_NEVER_EXPIRES = "Once enabled, the session has no end: it lasts until it is removed from " +
+            "the account. The date in the data is only how long it can be enabled."
         const val SESSION_SIGNS_MESSAGES = "The session may sign messages for the account, and a signed permit or " +
             "order can let others take its tokens."
         const val SESSION_GENERIC = "A call no action names may still be allowed by the account's generic policies."

@@ -267,7 +267,9 @@ internal fun safeTxActionItem(
             ),
             warning = listOfNotNull(
                 SafeTxActionItem.APPROVAL.takeIf { items.any { it.warning?.contains(SafeTxActionItem.APPROVAL) == true } || action.calls.any { it is SafeTxAction.TokenApproval } },
-                BATCH_INNER_DELEGATE.takeIf { action.calls.any { it is SafeTxAction.DelegateCall || it is SafeTxAction.Batch } },
+                // MultiSendCallOnly reverts an inner delegate call: the whole batch then cannot run.
+                (if (action.callOnly) BATCH_CANNOT_RUN else BATCH_INNER_DELEGATE)
+                    .takeIf { action.calls.any { it is SafeTxAction.DelegateCall || it is SafeTxAction.Batch } },
             ).takeIf { it.isNotEmpty() }?.joinToString(" "),
             calls = items,
         )
@@ -303,6 +305,10 @@ internal const val PRE_SIGNATURE_WARNING = "Executing this lets CoW Protocol fil
 /** A batch that runs another contract's code as the Safe. */
 internal const val BATCH_INNER_DELEGATE = "A call in this batch is itself a delegate call: the Safe would run that " +
     "contract's code as itself."
+
+/** A MultiSendCallOnly batch with a delegate call in it, which that contract refuses. */
+internal const val BATCH_CANNOT_RUN = "A call in this batch is a delegate call, which MultiSendCallOnly refuses: the " +
+    "whole batch reverts and cannot run."
 
 /** [seconds] since 1970 as a UTC date and time, "2026-11-26 14:05 UTC"; "no end" past year 9999. */
 internal fun utcDate(seconds: Long): String {

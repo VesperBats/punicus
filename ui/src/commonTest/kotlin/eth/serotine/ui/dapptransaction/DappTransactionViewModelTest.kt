@@ -148,6 +148,7 @@ class DappTransactionViewModelTest {
     private var throwing = false
     private var traceAnswer: CallTraceReading = CallTraceReading.NotTraced
     private var traceWaits: suspend () -> Unit = {}
+    private val traceAsked = mutableListOf<Triple<Address, Address, UInt256>>()
     private var counting: () -> Unit = {}
 
     private fun TestScope.viewModel(id: Long = 1): DappTransactionViewModel {
@@ -157,7 +158,7 @@ class DappTransactionViewModelTest {
             "t/$id",
             ObserveDappMessages(requests, accounts, networks, catalog, MemoryAliases(), clock = { now }),
             if (throwing) describingThat(throws = IllegalStateException("engine")) else describing(catalog, *deployments, onRead = counting),
-            tracing(catalog, backgroundScope) {
+            tracing(catalog, backgroundScope, traceAsked) {
                 traceWaits()
                 traceAnswer
             },
@@ -184,6 +185,38 @@ class DappTransactionViewModelTest {
         backgroundScope.launch { vm.uiState.collect {} }
         runCurrent()
         return vm
+    }
+
+    private val safe get() = safes.safe
+
+    @Test
+    fun anOwnersExecuteShowsWhatTheSafeRunsAndTracesItAsTheSafesOwnCall() = runTest {
+        val tx = eth.serotine.domain.model.SafeTx(
+            usdc.address, UInt256.ZERO, eth.serotine.domain.model.Erc20.transferData(recipient, UInt256.of(25_000_000)),
+            eth.serotine.domain.model.SafeOperation.CALL, UInt256.ZERO, UInt256.ZERO, UInt256.ZERO, Address.ZERO, Address.ZERO, 0,
+        )
+        val data = eth.serotine.domain.model.SafeExecCall.data(tx, ByteArray(65) { 1 })
+        requests.waiting.value = listOf(request(9, DappTransactionRequest(held.address, safe, UInt256.ZERO, data, null)))
+        safes.state = safes.state
+        val state = viewModel(9).uiState.value
+        val section = assertNotNull(state.safeTx)
+        assertEquals("Send 25 USDC", section.action.title)
+        // Any account may execute: no warning for one that is no owner.
+        assertNull(section.safeWarning)
+        assertTrue(section.safeLine.contains("This account executes it"), section.safeLine)
+        assertEquals(Triple(safe, usdc.address, UInt256.ZERO), traceAsked.last(), "traced as the Safe's own call")
+        assertEquals(eth.serotine.ui.components.TraceText.SAFE_CALL_NOTE, state.trace?.note)
+        assertFalse(DappTransactionViewModel.NOT_DECODED in state.warnings)
+    }
+
+    @Test
+    fun anApproveHashIsNamedAndWarnedAbout() = runTest {
+        val data = "d4d9bdcd".chunked(2).map { it.toInt(16).toByte() }.toByteArray() + ByteArray(32) { 9 }
+        requests.waiting.value = listOf(request(10, DappTransactionRequest(held.address, safe, UInt256.ZERO, data, null)))
+        val state = viewModel(10).uiState.value
+        assertTrue(state.meaning!!.startsWith("Approves, on chain"), state.meaning)
+        assertTrue(DappTransactionViewModel.APPROVE_HASH_WARNING in state.warnings)
+        assertEquals("0x" + "09".repeat(32), state.meaningFields.first { it.label == "Safe transaction hash" }.value)
     }
 
     @Test

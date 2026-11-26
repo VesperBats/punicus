@@ -1298,6 +1298,7 @@ class AppGraph(
         RefuseDappRequest(dappRequests, accounts, networkSettings),
         DescribeKeyStore(keys),
         observeSafe(),
+        traceCall,
     )
 
     /** The `wc:` link the platform opened the app with, which the host offers and Connect a dApp takes. */

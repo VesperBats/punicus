@@ -495,6 +495,7 @@ internal val dappTransactionScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("traced-again") { DappTransactionTracedAgainPreview() },
     ScreenPreview("safe-execution") { DappTransactionSafeExecutionPreview() },
     ScreenPreview("safe-execution-dark") { DappTransactionSafeExecutionDarkPreview() },
+    ScreenPreview("safe-approve-hash") { DappTransactionSafeApproveHashPreview() },
 )
 
 @Preview
@@ -602,3 +603,25 @@ private fun DappTransactionSafeExecutionPreview() = DappTransactionPreview(safeE
 @Preview
 @Composable
 private fun DappTransactionSafeExecutionDarkPreview() = DappTransactionPreview(safeExecution, darkTheme = true)
+
+private val safeApproveHash = safeExecution.copy(
+    meaning = DappTransactionViewModel.meaningLine(
+        eth.serotine.domain.model.DappCallMeaning.SafeApproveHash(
+            executionSafe,
+            eth.serotine.domain.model.Digest.of("e6d2d3af4226a814bc0aa04b95dba3a35f6a9b861eb97f8dd1ff37fcdf5a68a2"),
+        ),
+        null,
+    ),
+    meaningFields = listOf(
+        SignInField("Safe transaction hash", "0xe6d2d3af4226a814bc0aa04b95dba3a35f6a9b861eb97f8dd1ff37fcdf5a68a2"),
+        SignInField("The Safe", "A Safe 1.4.1, verified by the light client: 2 of 2 owners, at nonce 55."),
+    ),
+    safeTx = null,
+    dataHex = "d4d9bdcde6d2d3af4226a814bc0aa04b95dba3a35f6a9b861eb97f8dd1ff37fcdf5a68a2",
+    dataSize = "36 bytes",
+    warnings = listOf(DappTransactionViewModel.APPROVE_HASH_WARNING),
+)
+
+@Preview
+@Composable
+private fun DappTransactionSafeApproveHashPreview() = DappTransactionPreview(safeApproveHash)

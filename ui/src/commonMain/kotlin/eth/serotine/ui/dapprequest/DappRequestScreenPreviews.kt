@@ -398,7 +398,12 @@ private val previewSafeState = SafeReading.Verified(
 private fun previewSafeTx(to: Address, data: ByteArray, operation: SafeOperation = SafeOperation.CALL) =
     SafeTx(to, UInt256.ZERO, data, operation, UInt256.ZERO, UInt256.ZERO, UInt256.ZERO, Address.ZERO, Address.ZERO, 55)
 
-private fun safeTxState(tx: SafeTx, refusal: String? = null, warnings: List<String> = emptyList()) = signIn.copy(
+private fun safeTxState(
+    tx: SafeTx,
+    refusal: String? = null,
+    warnings: List<String> = emptyList(),
+    reading: SafeReading = previewSafeState,
+) = signIn.copy(
     title = "Safe transaction to sign",
     name = "Safe{Wallet}",
     url = "https://app.example.org",
@@ -415,7 +420,7 @@ private fun safeTxState(tx: SafeTx, refusal: String? = null, warnings: List<Stri
         tokens = listOf(previewCow),
         nonce = tx.nonce,
         hash = "0x" + tx.hash(Network.ETHEREUM.chainId, previewSafe).hex,
-        reading = previewSafeState,
+        reading = reading,
         signer = Address.of(ACCOUNT),
     ),
     domainFields = listOf(
@@ -485,7 +490,7 @@ private val sessionGrant = signIn.copy(
     typed = true,
     network = "On Ethereum, real funds",
     meaning = "Grants a session key the power to act for 0x425E…A0AB on Ethereum (1): any call, to any contract, " +
-        "with no limit, for ever. Whoever holds the key may then use it without asking you again (Smart Sessions).",
+        "with no limit, until it is removed. Whoever holds the key may then use it without asking you again (Smart Sessions).",
     meaningWarnings = listOf(
         TypedDataText.SESSION_ANY_CALL,
         TypedDataText.SESSION_SUDO,
@@ -497,7 +502,8 @@ private val sessionGrant = signIn.copy(
         SignInField("Account", "0x425E7c0C12E60Bc7Fe106AC3b44FA9D0602CA0AB"),
         SignInField("Network", "Ethereum (1)"),
         SignInField("Allowed calls", "Any contract, any function, under SudoPolicy (no limit)"),
-        SignInField("Until", "Never: it does not expire"),
+        SignInField("Lasts", "Until it is removed from the account: Smart Sessions sets no end"),
+        SignInField("Can be enabled until", "Any time: no date"),
         SignInField("Signs messages for the account", "Yes, under SudoPolicy (no limit)"),
         SignInField(
             "Session key",
@@ -519,6 +525,66 @@ private val sessionGrant = signIn.copy(
         DappRequestViewModel.warningLine(DappSignWarning.SESSION_KEY_GRANT, null),
     ),
 )
+
+private val safeNft = safeTxState(
+    previewSafeTx(
+        Address.of("0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85"),
+        "42842e0e".hexBytes() + ByteArray(12) + previewSafe.hex.removePrefix("0x").hexBytes() + ByteArray(12) +
+            previewRecipient.hex.removePrefix("0x").hexBytes() + UInt256.of(4_207).toBytes32(),
+    ),
+)
+
+private val safeCowOrder = safeTxState(
+    previewSafeTx(
+        Address.of("0x9008d19f58aabd9ed0d60971565aa8510560ab41"),
+        "ec6cb13f".hexBytes() + UInt256.of(64).toBytes32() + UInt256.of(1).toBytes32() + UInt256.of(56).toBytes32() +
+            ByteArray(32) { 0x5c } + previewSafe.hex.removePrefix("0x").hexBytes() + "6a0f4b00".hexBytes() + ByteArray(8),
+    ),
+)
+
+private val safeNotOwner = safeTxState(
+    previewSafeTx(previewCow.address, Erc20.transferData(previewRecipient, UInt256.of(1_000_000_000_000_000_000))),
+    reading = SafeReading.Verified(
+        SafeState("1.4.1", l2 = false, listOf(previewRecipient, previewCow.address), 2, 55, emptyList(), null),
+        24_000_000,
+        emptyList(),
+    ),
+)
+
+private val notASafe = safeTxState(
+    previewSafeTx(previewCow.address, Erc20.transferData(previewRecipient, UInt256.of(1_000_000_000_000_000_000))),
+    reading = SafeReading.NotASafe,
+)
+
+private val safeGasTerms = safeTxState(
+    SafeTx(
+        previewRecipient, UInt256.of(10_000_000_000_000_000), ByteArray(0), SafeOperation.CALL, UInt256.of(50_000),
+        UInt256.of(21_000), UInt256.of(30_000_000_000), Address.ZERO, previewRecipient, 55,
+    ),
+    refusal = "It carries gas or refund terms: Punicus does not sign, approve or execute those.",
+)
+
+private fun String.hexBytes(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+@Preview
+@Composable
+private fun DappRequestSafeNftPreview() = DappRequestPreview(safeNft)
+
+@Preview
+@Composable
+private fun DappRequestSafeCowOrderPreview() = DappRequestPreview(safeCowOrder)
+
+@Preview
+@Composable
+private fun DappRequestSafeNotOwnerPreview() = DappRequestPreview(safeNotOwner)
+
+@Preview
+@Composable
+private fun DappRequestNotASafePreview() = DappRequestPreview(notASafe)
+
+@Preview
+@Composable
+private fun DappRequestSafeGasTermsPreview() = DappRequestPreview(safeGasTerms)
 
 @Preview
 @Composable
@@ -586,4 +652,9 @@ internal val dappRequestScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("safe-message") { DappRequestSafeMessagePreview() },
     ScreenPreview("session-grant") { DappRequestSessionGrantPreview() },
     ScreenPreview("session-grant-dark") { DappRequestSessionGrantDarkPreview() },
+    ScreenPreview("safe-nft") { DappRequestSafeNftPreview() },
+    ScreenPreview("safe-cow-order") { DappRequestSafeCowOrderPreview() },
+    ScreenPreview("safe-not-owner") { DappRequestSafeNotOwnerPreview() },
+    ScreenPreview("not-a-safe") { DappRequestNotASafePreview() },
+    ScreenPreview("safe-gas-terms") { DappRequestSafeGasTermsPreview() },
 )

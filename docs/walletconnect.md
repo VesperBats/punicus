@@ -538,12 +538,15 @@ to be suspicious, and the review says so.
   (`safeTransferFrom`), a CoW order pre-signed (`setPreSignature`: the order's
   amounts are not in the transaction, and the review says so), and a batch
   through one of Safe's MultiSend or MultiSendCallOnly deployments, each of
-  its calls decoded the same way. A contract call no hand-written decoder
+  its calls decoded the same way (1.5.0's read a call to the zero address as
+  one of the Safe itself, and so does the decoding). A contract call no hand-written decoder
   reads is described by a built-in descriptor as the Safe's own call, as on
   screen 17 (docs/clear-signing.md, A5). The review shows the Safe as the
   light client reads it (its version, owners, threshold and nonce, whether
   this transaction is its next one, whether the account asked is an owner),
-  the nonce, the `safeTxHash` in full and any gas and refund terms.
+  the nonce, the `safeTxHash` in full and any gas and refund terms, and the
+  call traced as the Safe's own at the verified head (a delegate call is not
+  traced), held against what the decoding says.
 - **The Safe refusals hold, whoever proposes the transaction**
   (`.claude/rules/trust.md`): a delegate call (a batch among them, #57), gas
   or refund terms, a call of the Safe itself not decoded exactly, a module
@@ -551,10 +554,13 @@ to be suspicious, and the review says so.
   the Safe's verified owners when it is signed, a change that would leave it
   an n-of-n without recovery. Such a transaction is shown, decoded, and
   refused.
-- **`execTransaction`**, sent by an owner here to execute a Safe transaction
-  its owners signed (Safe{Wallet}'s Execute), is decoded the same way, its
-  nonce being the Safe's when it runs, and held to the same refusals; the
-  change that needs a recovery module is checked when it is quoted.
+- **`execTransaction`**, sent by an account here to execute a Safe
+  transaction its owners signed (Safe{Wallet}'s Execute; owner or not), is
+  decoded the same way, its nonce being the Safe's when it runs, held to the
+  same refusals and traced as the Safe's own call; the change that needs a
+  recovery module is checked when it is quoted. One whose data is not
+  exactly `execTransaction`'s encoding (a trailing byte, an offset of its
+  own) is refused: the Safe would still run something from it.
 - **`approveHash`** is named as an on-chain approval of the Safe transaction
   whose hash it carries. What that transaction does is not in the call, and
   the review says so.
@@ -570,10 +576,13 @@ account among them) with Rhinestone's Smart Sessions v2: typed data of the
 domain names no chain and no contract, so no descriptor can be bound to code
 for it: it is recognised by its exact struct and read from the data alone.
 The review says, per chain, which account the key may act for, which calls it
-may make, under which policies, until when, whether it may sign messages for
-the account, and who checks the key's signatures. Each power without a limit
+may make, under which policies, until when it can be enabled, whether it may
+sign messages for the account, and who checks the key's signatures. Smart
+Sessions v2 checks its `expires` only when the grant is enabled: once enabled,
+a session has no end of its own, and the review says so for every grant (a
+policy could limit its time; none is read here). Each power without a limit
 is said first, in the error colour: any contract or any function, the
-SudoPolicy, no expiry, message signing, the generic-policy fallback. It is
+SudoPolicy, no end, message signing, the generic-policy fallback. It is
 signable, with those warnings; whether to refuse an unlimited grant is the
 owner's to decide.
 
