@@ -304,7 +304,7 @@ class DappSigningTest {
         assertEquals(mapOf(token.address to token), content.tokens)
         assertEquals(content.typed.digest, review.digest)
         requests.waiting.value = listOf(permit())
-        val sign = SignDappMessage(requests, accounts, networks, signer, clock = { now })
+        val sign = SignDappMessage(requests, accounts, networks, signer, noSafes(accounts), clock = { now })
         assertEquals(DappMessageSigning.Signed(delivered = true), sign(permit().id, Unlock.WithBiometrics("x")))
         assertEquals(listOf(held.address to content.typed.digest), signer.asked)
     }
@@ -340,7 +340,7 @@ class DappSigningTest {
     fun signingSignsTheEip191DigestAndAnswersWithTheSignature() = runTest {
         val first = request(1)
         requests.waiting.value = listOf(first)
-        val sign = SignDappMessage(requests, accounts, networks, signer, clock = { now })
+        val sign = SignDappMessage(requests, accounts, networks, signer, noSafes(accounts), clock = { now })
         assertEquals(DappMessageSigning.Signed(delivered = true), sign(first.id, Unlock.WithBiometrics("Sign in")))
         val ask = first.ask as DappAsk.PersonalSign
         assertEquals(listOf(held.address to ask.message.digest()), signer.asked)
@@ -352,7 +352,7 @@ class DappSigningTest {
 
     @Test
     fun nothingIsSignedForARefusedOrExpiredRequestAndARefusalOfTheSignerIsSaid() = runTest {
-        val sign = SignDappMessage(requests, accounts, networks, signer, clock = { now })
+        val sign = SignDappMessage(requests, accounts, networks, signer, noSafes(accounts), clock = { now })
         requests.waiting.value = listOf(request(1, signIn(watched.address), watched.address), request(2).copy(expiresAtSeconds = now))
         assertEquals(DappMessageSigning.Refused(DappSignRefusal.NO_KEY), sign(request(1).id, Unlock.WithBiometrics("x")))
         assertEquals(DappMessageSigning.Expired, sign(request(2).id, Unlock.WithBiometrics("x")))

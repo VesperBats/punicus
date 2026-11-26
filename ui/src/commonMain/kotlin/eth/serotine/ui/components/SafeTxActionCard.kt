@@ -79,6 +79,10 @@ fun SafeTxActionCard(action: SafeTxActionItem, modifier: Modifier = Modifier, on
             action.warning?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             }
+            action.calls.forEachIndexed { index, call ->
+                Text("Call ${index + 1} of ${action.calls.size}", style = MaterialTheme.typography.labelLarge)
+                SafeTxActionCard(call, Modifier.padding(start = 8.dp))
+            }
             action.trace?.let { TracedEffects(it, onRetrace, Modifier) }
         }
     }

@@ -282,7 +282,8 @@ part of the decisions:
 - **The hand-written decoders take precedence, by type.** Where one claims a
   struct type (`encodeType`) or a selector, its answer stands, "not decoded"
   included: `TypedDataMeaning` (Permit, Permit2, CoW; a GPv2 order with a
-  fee is left undecoded on purpose), ERC-20 `transfer` and `approve`
+  fee is left undecoded on purpose; Safe's `SafeTx` and `SafeMessage`; Smart
+  Sessions' `MultiChainSession`), ERC-20 `transfer` and `approve`
   (`Erc20`), the swap reads of SwapRouter02, and Safe's own methods. A
   descriptor covers only the types and selectors none of them claims.
 
@@ -336,7 +337,11 @@ through the existing Myotis adapter; nothing new crosses `io.myotis.api`.
   Safe review does not decode itself (a contract call, operation CALL) is
   described with the Safe as its sender, on every screen of it (the
   overview, signing, the reviews, a held signature), asked again with each
-  *Check again*. A dApp's Safe transaction is D6's, described there.
+  *Check again*. A dApp's Safe transaction is D6's, described there. A
+  `SafeTx` an owner here is asked to sign as typed data (Safe{Wallet} over
+  WalletConnect), and the Safe transaction an owner's `execTransaction`
+  runs, are decoded and described the same way, the Safe as the sender
+  (docs/walletconnect.md, *A Safe transaction to sign*).
 - **Not yet:** a nested call whose selector a hand-written decoder claims
   (ERC-20 `transfer`, `approve`) is shown raw inside its parent, flagged as
   an approval where it is one, not put in words. No shipped deployment nests

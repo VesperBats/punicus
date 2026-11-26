@@ -49,7 +49,8 @@ data class TraceClaims(
             DappCallMeaning.Payment -> TraceClaims(emptySet(), currency = true, addresses = setOf(to), grantsRight = false)
             is DappCallMeaning.TokenTransfer -> TraceClaims(setOf(meaning.token), false, setOf(meaning.recipient), false)
             is DappCallMeaning.TokenApproval -> TraceClaims(setOf(meaning.token), false, setOf(meaning.spender), true)
-            is DappCallMeaning.NotDecoded -> null
+            // What the Safe runs is held against its own trace, not this call's: no claims here.
+            is DappCallMeaning.SafeExecution, is DappCallMeaning.SafeApproveHash, is DappCallMeaning.NotDecoded -> null
         }
 
         /** A Safe transaction's claims as screen 17 decodes it, for [account] (the Safe); null when not decoded. */
@@ -65,6 +66,8 @@ data class TraceClaims(
             )
             // It moves nothing and grants nothing: whatever the trace finds is a disagreement.
             is SafeTxAction.SettingsChange, SafeTxAction.Rejection -> TraceClaims(emptySet(), false, emptySet(), false)
+            is SafeTxAction.NftTransfer -> TraceClaims(setOf(action.contract), false, setOf(action.to), false)
+            is SafeTxAction.CowPreSignature, is SafeTxAction.Batch,
             is SafeTxAction.ContractCall, is SafeTxAction.DelegateCall -> null
         }
 

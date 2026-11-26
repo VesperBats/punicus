@@ -25,6 +25,20 @@ import eth.serotine.domain.usecase.PerAppSigner
 import eth.serotine.domain.usecase.RefuseDappRequest
 import eth.serotine.domain.usecase.SignDappMessage
 import eth.serotine.ui.components.ClearSignedSection
+import eth.serotine.ui.components.DappSafeTxSection
+import eth.serotine.ui.components.dappSafeTxSection
+import eth.serotine.ui.components.safeTxRefusalText
+import eth.serotine.domain.model.AccountId
+import eth.serotine.domain.model.Address
+import eth.serotine.domain.model.SafeTxAction
+import eth.serotine.domain.model.SafeTxGasTerms
+import eth.serotine.domain.model.TypedDataMeaning
+import eth.serotine.domain.usecase.ObserveSafe
+import eth.serotine.domain.usecase.SafeReading
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onStart
 import eth.serotine.ui.components.ClearSignedText
 import eth.serotine.ui.components.Eip55
 import eth.serotine.ui.components.UnlockStep
@@ -97,7 +111,14 @@ data class DappRequestUiState(
     val typed: Boolean = false,
     /** What signing the typed data lets someone do; null when its struct is not one this app knows. */
     val meaning: String? = null,
+    /** What to know first about what it lets someone do: each unlimited power a session key would get. */
+    val meaningWarnings: List<String> = emptyList(),
     val meaningFields: List<SignInField> = emptyList(),
+    /**
+     * A Safe transaction to sign (`SafeTx`), as screen 17 decodes one: its Safe, what the light client says of it,
+     * what it does, its nonce and hash (docs/walletconnect.md, *A Safe transaction to sign*); null for other data.
+     */
+    val safeTx: DappSafeTxSection? = null,
     /** The typed data's domain: who verifies the signature, on which chain. */
     val domainFields: List<SignInField> = emptyList(),
     /** Every field of the typed data's message. */
@@ -143,6 +164,8 @@ class DappRequestViewModel(
     private val signDappMessage: SignDappMessage,
     private val refuseDappRequest: RefuseDappRequest,
     private val describeKeyStore: DescribeKeyStore,
+    /** The Safe a `SafeTx` or a `SafeMessage` is for, read by the light client. */
+    private val observeSafe: ObserveSafe,
     private val clock: () -> Long = ::epochSecondsNow,
     private val formatTime: (Long) -> String = ::formatDateTime,
     /** When how long the dApp waits is said again: every 15 seconds while the screen is open. */
@@ -182,10 +205,17 @@ class DappRequestViewModel(
             val review = observeDappMessages().first().find { it.request.id == id } ?: return@launch
             val content = review.content as? DappSignContent.Typed ?: return@launch
             val network = review.request.network ?: return@launch
-            if (content.meaning != null) return@launch
+            // A Safe transaction's call not decoded here is described as the Safe's own call, as screen 17 does.
+            val safeTx = content.meaning as? TypedDataMeaning.SafeTransaction
+            val call = safeTx?.let { SafeTxAction.of(it.safe, it.tx) as? SafeTxAction.ContractCall }
+            if (content.meaning != null && call == null) return@launch
             describing.value = true
             description.value = try {
-                describeClearSigning.typedData(network, review.address, content.typed.data)
+                if (safeTx != null) {
+                    describeClearSigning.call(network, safeTx.safe, safeTx.tx.to, safeTx.tx.value, safeTx.tx.data)
+                } else {
+                    describeClearSigning.typedData(network, review.address, content.typed.data)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -229,7 +259,17 @@ class DappRequestViewModel(
 
     private val described = combine(description, describing) { result, busy -> result to busy }
 
-    val uiState: StateFlow<DappRequestUiState> = combine(shownReview, local, ticks, described) { shown, local, _, described ->
+    /** The Safe the typed data is for, as the light client reads it now; null for other data, or before. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val safeReading: Flow<SafeReading?> = shownReview
+        .map { shown -> shown?.first?.let { review -> review.request.network?.let { it to safeOf(review) } } }
+        .distinctUntilChanged()
+        .flatMapLatest { at ->
+            val safe = at?.second ?: return@flatMapLatest flowOf(null)
+            observeSafe(AccountId(at.first, safe)).map<SafeReading, SafeReading?> { it }.onStart { emit(null) }
+        }
+
+    val uiState: StateFlow<DappRequestUiState> = combine(shownReview, local, ticks, described, safeReading) { shown, local, _, described, reading ->
         val (review, plain) = shown
             // No longer waiting: the screen leaves, unless an answer that did not take says why first.
             ?: return@combine if (local.notice != null && !local.done) {
@@ -237,7 +277,7 @@ class DappRequestViewModel(
             } else {
                 DappRequestUiState(loading = false, gone = true, done = local.done)
             }
-        val base = withDescription(plain, review, described.first, described.second)
+        val base = withDescription(withSafe(plain, review, reading), review, described.first, described.second)
         base.copy(
             waits = waitsLine(review.request.expiresAtSeconds - clock()),
             unlock = local.unlock,
@@ -258,7 +298,11 @@ class DappRequestViewModel(
             network = onLine(review.request.network),
             perAppLine = review.perApp?.let(::perAppLine),
             warnings = review.warnings.sorted().map { warningLine(it, review.perApp) },
-            refusal = review.refusal?.let(::refusalLine),
+            refusal = review.refusal?.let { refusal ->
+                review.safeTxRefusal?.takeIf { refusal == DappSignRefusal.SAFE_TX_REFUSED }
+                    ?.let { safeTxRefusalText(it, review.request.network ?: Network.ETHEREUM) }
+                    ?: refusalLine(refusal)
+            },
         )
         return when (val content = review.content) {
             is DappSignContent.Message -> {
@@ -286,12 +330,42 @@ class DappRequestViewModel(
                     promptSubject = typed.promptSubject,
                     typed = true,
                     meaning = typed.meaning,
+                    meaningWarnings = typed.meaningWarnings,
                     meaningFields = typed.meaningFields,
                     domainFields = typed.domainFields,
                     typedRows = typed.rows,
                 )
             }
         }
+    }
+
+    /** The Safe [review]'s typed data is for: a `SafeTx`'s or a `SafeMessage`'s verifying contract; null for other data. */
+    private fun safeOf(review: DappMessageReview): Address? =
+        when (val meaning = (review.content as? DappSignContent.Typed)?.meaning) {
+            is TypedDataMeaning.SafeTransaction -> meaning.safe
+            is TypedDataMeaning.SafeMessage -> meaning.safe
+            else -> null
+        }
+
+    /** [state] with its Safe transaction's block, the Safe as [reading] says (null: not read yet). */
+    private fun withSafe(state: DappRequestUiState, review: DappMessageReview, reading: SafeReading?): DappRequestUiState {
+        val content = review.content as? DappSignContent.Typed ?: return state
+        val meaning = content.meaning as? TypedDataMeaning.SafeTransaction ?: return state
+        val network = review.request.network ?: return state
+        val tx = meaning.tx
+        return state.copy(
+            safeTx = dappSafeTxSection(
+                safe = meaning.safe,
+                action = SafeTxAction.of(meaning.safe, tx),
+                gasTerms = SafeTxGasTerms.of(tx),
+                network = network,
+                tokens = content.tokens.values,
+                nonce = tx.nonce,
+                hash = "0x" + content.typed.digest.hex,
+                reading = reading,
+                signer = review.address,
+            ),
+        )
     }
 
     private fun fields(signIn: SignInMessage): List<SignInField> = buildList {
@@ -321,6 +395,10 @@ class DappRequestViewModel(
         busy: Boolean,
     ): DappRequestUiState {
         if (!state.typed) return state
+        state.safeTx?.let { section ->
+            // A Safe transaction's call: its description goes on its own card, as screen 17 shows one.
+            return state.copy(safeTx = section.copy(action = section.action.withDescription(result, busy)))
+        }
         val notDecoded = warningLine(DappSignWarning.NOT_DECODED, review.perApp)
         return when (result) {
             is ClearSignResult.ClearSigned -> state.copy(
@@ -420,6 +498,10 @@ class DappRequestViewModel(
         )
         is DappMessageSigning.Refused ->
             local.copy(busy = false, explaining = RequestExplanation("Cannot be signed", refusalLine(signing.refusal)))
+        is DappMessageSigning.SafeTxRefused -> local.copy(
+            busy = false,
+            explaining = RequestExplanation("Cannot be signed", safeTxRefusalText(signing.refusal, Network.ETHEREUM)),
+        )
         DappMessageSigning.Expired -> local.copy(busy = false, notice = EXPIRED)
         DappMessageSigning.Gone -> local.copy(busy = false, notice = GONE)
         DappMessageSigning.NotSaved -> local.copy(busy = false, notice = NOT_SAVED)
@@ -500,6 +582,19 @@ class DappRequestViewModel(
             DappSignWarning.NOT_DECODED ->
                 "Punicus does not know this kind of data, so it cannot tell what signing it lets someone do: " +
                     "it is shown field by field. Sign only if you trust this dApp and understand every field."
+            DappSignWarning.SAFE_MESSAGE_HASH_ONLY ->
+                "This asks you to sign, for the Safe, a message Punicus cannot show: the request holds only its " +
+                    "hash. Signed by enough owners, it counts as the Safe's own signature, and a signed permit or " +
+                    "order can let others take the Safe's tokens. Sign it only if you saw the message in the app " +
+                    "that asked and trust it."
+            DappSignWarning.SAFE_CALL_NOT_DECODED ->
+                "Punicus does not decode this Safe transaction's call. Ordinary Safe{Wallet} transactions (a " +
+                    "payment, a token or NFT sent, an approval, a change of owners, a batch of them) are decoded, " +
+                    "so this one is unusual: check it with whoever proposed it before you sign."
+            DappSignWarning.SESSION_KEY_GRANT ->
+                "This grants a session key power over a smart account: whoever holds the key may act for it " +
+                    "without asking you again. Its data names no contract, so Punicus cannot check it against " +
+                    "verified code: it is read from the data alone."
             DappSignWarning.NOT_A_SIGN_IN ->
                 "This is not a sign-in. Punicus cannot tell what signing it commits you to: sign only if you " +
                     "trust this dApp and understand the message."
@@ -536,6 +631,7 @@ class DappRequestViewModel(
                 "modules or fallback handler. A dApp cannot do that here: change the Safe's settings on its own screen."
             DappSignRefusal.TX_TO_ZERO_ADDRESS ->
                 "It sends to the zero address: nobody holds its key, so what it sends would be lost for good."
+            DappSignRefusal.SAFE_TX_REFUSED -> "Punicus does not sign, approve or execute this Safe transaction."
             DappSignRefusal.TYPED_TOO_LARGE ->
                 "The data has more fields than this screen can show, and Punicus signs nothing it cannot show in full."
         }

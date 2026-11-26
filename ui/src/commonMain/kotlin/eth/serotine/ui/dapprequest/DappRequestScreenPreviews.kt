@@ -1,6 +1,21 @@
 package eth.serotine.ui.dapprequest
 
 import androidx.compose.runtime.Composable
+import eth.serotine.domain.model.Address
+import eth.serotine.domain.model.BatchedCall
+import eth.serotine.domain.model.Erc20
+import eth.serotine.domain.model.Network
+import eth.serotine.domain.model.SafeMultiSend
+import eth.serotine.domain.model.SafeOperation
+import eth.serotine.domain.model.SafeTx
+import eth.serotine.domain.model.SafeTxAction
+import eth.serotine.domain.model.SafeTxGasTerms
+import eth.serotine.domain.model.Token
+import eth.serotine.domain.model.UInt256
+import eth.serotine.domain.repository.SafeState
+import eth.serotine.domain.usecase.SafeReading
+import eth.serotine.ui.components.Eip55
+import eth.serotine.ui.components.dappSafeTxSection
 import eth.serotine.domain.model.AppHost
 import eth.serotine.domain.model.AppHostResult
 import eth.serotine.domain.model.WalletPassword
@@ -370,6 +385,169 @@ private fun DappRequestPerAppLinkedPreview() = DappRequestPreview(
     ),
 )
 
+// A Safe transaction Safe{Wallet} asks an owner to sign over WalletConnect: 1 COW to 0xbcb8…2d9c, at nonce 55.
+private val previewSafe = Address.of("0x425e7c0c12e60bc7fe106ac3b44fa9d0602ca0ab")
+private val previewCow = Token(Address.of("0xdef1ca1fb7fbcdc777520aa7f396b4e015f497ab"), "COW", "CoW Protocol Token", 18, "cow")
+private val previewRecipient = Address.of("0xbcb8a02a8166ffb75924ecf89865539feac12d9c")
+private val previewSafeState = SafeReading.Verified(
+    SafeState("1.4.1", l2 = false, listOf(Address.of(ACCOUNT), previewRecipient), 2, 55, emptyList(), null),
+    24_000_000,
+    emptyList(),
+)
+
+private fun previewSafeTx(to: Address, data: ByteArray, operation: SafeOperation = SafeOperation.CALL) =
+    SafeTx(to, UInt256.ZERO, data, operation, UInt256.ZERO, UInt256.ZERO, UInt256.ZERO, Address.ZERO, Address.ZERO, 55)
+
+private fun safeTxState(tx: SafeTx, refusal: String? = null, warnings: List<String> = emptyList()) = signIn.copy(
+    title = "Safe transaction to sign",
+    name = "Safe{Wallet}",
+    url = "https://app.safe.global",
+    signIn = emptyList(),
+    typed = true,
+    network = "On Ethereum, real funds",
+    meaning = "A transaction of the Safe 0x425E…A0AB, for its owners to sign. Once enough of them have, anyone " +
+        "may execute it. What it does is decoded below.",
+    safeTx = dappSafeTxSection(
+        safe = previewSafe,
+        action = SafeTxAction.of(previewSafe, tx),
+        gasTerms = SafeTxGasTerms.of(tx),
+        network = Network.ETHEREUM,
+        tokens = listOf(previewCow),
+        nonce = tx.nonce,
+        hash = "0x" + tx.hash(Network.ETHEREUM.chainId, previewSafe).hex,
+        reading = previewSafeState,
+        signer = Address.of(ACCOUNT),
+    ),
+    domainFields = listOf(
+        SignInField("Network", "Ethereum (1)"),
+        SignInField("Contract", "0x425E7c0C12E60Bc7Fe106AC3b44FA9D0602CA0AB"),
+    ),
+    typedRows = listOf(
+        TypedRow(0, "to", Eip55.format(tx.to)),
+        TypedRow(0, "value", "0"),
+        TypedRow(0, "data", "0x" + tx.data.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }),
+        TypedRow(0, "operation", tx.operation.code.toString()),
+        TypedRow(0, "nonce", "55"),
+    ),
+    refusal = refusal,
+    warnings = warnings,
+)
+
+private val safeTransfer = safeTxState(
+    previewSafeTx(previewCow.address, Erc20.transferData(previewRecipient, UInt256.of(1_000_000_000_000_000_000))),
+)
+
+private val safeBatch = safeTxState(
+    previewSafeTx(
+        Address.of("0x9641d764fc13c8b624c04430c7356c1c7c8102e2"),
+        SafeMultiSend.data(
+            listOf(
+                BatchedCall(SafeOperation.CALL, previewCow.address, UInt256.ZERO, Erc20.approveData(previewRecipient, UInt256.of(5_000_000_000_000_000_000))),
+                BatchedCall(SafeOperation.CALL, previewRecipient, UInt256.of(10_000_000_000_000_000), ByteArray(0)),
+            ),
+        ),
+        SafeOperation.DELEGATECALL,
+    ),
+    refusal = "A delegate call: Punicus does not sign, approve or execute one yet. Batches through the pinned " +
+        "MultiSendCallOnly come later.",
+)
+
+private val safeModule = safeTxState(
+    previewSafeTx(previewSafe, "610b5925000000000000000000000000bcb8a02a8166ffb75924ecf89865539feac12d9c".chunked(2).map { it.toInt(16).toByte() }.toByteArray()),
+    refusal = "Enabling a module is refused: a module can move the Safe's funds without its owners. Which modules may " +
+        "be enabled is still open (#54).",
+)
+
+private val safeMessage = signIn.copy(
+    title = "Safe message to sign",
+    name = "Safe{Wallet}",
+    url = "https://app.safe.global",
+    signIn = emptyList(),
+    typed = true,
+    network = "On Ethereum, real funds",
+    meaning = "A message signed for the Safe 0x425E…A0AB, as one of its owners: once enough of them have, contracts " +
+        "take it as the Safe's own signature (EIP-1271). The request holds only a hash of the message, so Punicus " +
+        "cannot show what the Safe signs.",
+    meaningFields = listOf(
+        SignInField("Safe", "0x425E7c0C12E60Bc7Fe106AC3b44FA9D0602CA0AB"),
+        SignInField("Message (its hash)", "0x" + "ab".repeat(32)),
+    ),
+    domainFields = listOf(SignInField("Network", "Ethereum (1)"), SignInField("Contract", "0x425E7c0C12E60Bc7Fe106AC3b44FA9D0602CA0AB")),
+    typedRows = listOf(TypedRow(0, "message", "0x" + "ab".repeat(32))),
+    warnings = listOf(DappRequestViewModel.warningLine(DappSignWarning.SAFE_MESSAGE_HASH_ONLY, null)),
+)
+
+private val sessionGrant = signIn.copy(
+    title = "Session key to grant",
+    name = "ENS",
+    url = "https://app.ens.domains",
+    signIn = emptyList(),
+    typed = true,
+    network = "On Ethereum, real funds",
+    meaning = "Grants a session key the power to act for 0x425E…A0AB on Ethereum (1): any call, to any contract, " +
+        "with no limit, for ever. Whoever holds the key may then use it without asking you again (Smart Sessions).",
+    meaningWarnings = listOf(
+        TypedDataText.SESSION_ANY_CALL,
+        TypedDataText.SESSION_SUDO,
+        TypedDataText.SESSION_NEVER_EXPIRES,
+        TypedDataText.SESSION_SIGNS_MESSAGES,
+        TypedDataText.SESSION_GENERIC,
+    ),
+    meaningFields = listOf(
+        SignInField("Account", "0x425E7c0C12E60Bc7Fe106AC3b44FA9D0602CA0AB"),
+        SignInField("Network", "Ethereum (1)"),
+        SignInField("Allowed calls", "Any contract, any function, under SudoPolicy (no limit)"),
+        SignInField("Until", "Never: it does not expire"),
+        SignInField("Signs messages for the account", "Yes, under SudoPolicy (no limit)"),
+        SignInField(
+            "Session key",
+            "Checked by 0xBCb8A02a8166FFB75924ECf89865539fEAC12D9c, with 96 bytes of its own data: who holds the key " +
+                "is not decoded here",
+        ),
+        SignInField("Checked by", "0xad568B3f825a8D5FfC06dd3253526b64D810aE89 (its SmartSessionEmissary)"),
+    ),
+    domainFields = listOf(SignInField("Name", "SmartSessionEmissary"), SignInField("Version", "1")),
+    typedRows = listOf(
+        TypedRow(0, "sessionsAndChainIds", "1 item"),
+        TypedRow(1, "[0]", null),
+        TypedRow(2, "chainId", "1"),
+        TypedRow(2, "session", null),
+        TypedRow(3, "account", "0x425E7c0C12E60Bc7Fe106AC3b44FA9D0602CA0AB"),
+    ),
+    warnings = listOf(
+        DappRequestViewModel.warningLine(DappSignWarning.NO_CHAIN_ID, null),
+        DappRequestViewModel.warningLine(DappSignWarning.SESSION_KEY_GRANT, null),
+    ),
+)
+
+@Preview
+@Composable
+private fun DappRequestSafeTransferPreview() = DappRequestPreview(safeTransfer)
+
+@Preview
+@Composable
+private fun DappRequestSafeTransferDarkPreview() = DappRequestPreview(safeTransfer, darkTheme = true)
+
+@Preview
+@Composable
+private fun DappRequestSafeBatchPreview() = DappRequestPreview(safeBatch)
+
+@Preview
+@Composable
+private fun DappRequestSafeModulePreview() = DappRequestPreview(safeModule)
+
+@Preview
+@Composable
+private fun DappRequestSafeMessagePreview() = DappRequestPreview(safeMessage)
+
+@Preview
+@Composable
+private fun DappRequestSessionGrantPreview() = DappRequestPreview(sessionGrant)
+
+@Preview
+@Composable
+private fun DappRequestSessionGrantDarkPreview() = DappRequestPreview(sessionGrant, darkTheme = true)
+
 private fun host(name: String) = (AppHost.parse(name) as AppHostResult.Host).host
 
 /** Every preview above, which DappRequestScreenPreviewsTest renders: a new preview goes in here too. */
@@ -401,4 +579,11 @@ internal val dappRequestScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("per-app") { DappRequestPerAppPreview() },
     ScreenPreview("per-app-other-site") { DappRequestPerAppOtherSitePreview() },
     ScreenPreview("per-app-linked") { DappRequestPerAppLinkedPreview() },
+    ScreenPreview("safe-transfer") { DappRequestSafeTransferPreview() },
+    ScreenPreview("safe-transfer-dark") { DappRequestSafeTransferDarkPreview() },
+    ScreenPreview("safe-batch") { DappRequestSafeBatchPreview() },
+    ScreenPreview("safe-module") { DappRequestSafeModulePreview() },
+    ScreenPreview("safe-message") { DappRequestSafeMessagePreview() },
+    ScreenPreview("session-grant") { DappRequestSessionGrantPreview() },
+    ScreenPreview("session-grant-dark") { DappRequestSessionGrantDarkPreview() },
 )

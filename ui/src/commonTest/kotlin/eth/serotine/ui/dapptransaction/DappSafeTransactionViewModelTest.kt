@@ -94,6 +94,7 @@ class DappSafeTransactionViewModelTest {
             QuoteDappTransaction(
                 requests, world.accounts, networks, world.catalog, world.balances, world.inputs, world.sent, history,
                 outbox = Outbox.None,
+                observeSafe = world.observeSafe,
                 clock = { now },
             ),
             SendDappTransaction(
@@ -108,6 +109,7 @@ class DappSafeTransactionViewModelTest {
             RefuseDappRequest(requests, world.accounts, networks, clock = { now }),
             DescribeKeyStore(FakeKeys()),
             observeSyncPolicy = ObserveSyncPolicy(policy),
+            observeSafe = world.observeSafe,
             clock = { now },
             timeSource = clock,
             ticks = kotlinx.coroutines.flow.flowOf(Unit),
@@ -143,6 +145,7 @@ class DappSafeTransactionViewModelTest {
             QuoteDappTransaction(
                 requests, gnosis.accounts, on, gnosis.catalog, gnosis.balances, gnosis.inputs, gnosis.sent, history,
                 outbox = Outbox.None,
+                observeSafe = gnosis.observeSafe,
                 clock = { now },
             ),
             SendDappTransaction(
@@ -157,6 +160,7 @@ class DappSafeTransactionViewModelTest {
             RefuseDappRequest(requests, gnosis.accounts, on, clock = { now }),
             DescribeKeyStore(FakeKeys()),
             observeSyncPolicy = ObserveSyncPolicy(MemorySyncPolicy()),
+            observeSafe = gnosis.observeSafe,
             clock = { now },
             timeSource = clock,
             ticks = kotlinx.coroutines.flow.flowOf(Unit),

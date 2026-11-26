@@ -321,6 +321,7 @@ class DappSafeTransactionsTest {
         val quote = QuoteDappTransaction(
             requests, world.accounts, networks, ListCatalog(), world.nativeBalances, world.inputs, world.sent, history,
             outbox = Outbox.None,
+            observeSafe = world.observeSafe,
             clock = { now },
         )
         assertEquals(DappTransactionQuoting.Gone, quote(request(payment).id))

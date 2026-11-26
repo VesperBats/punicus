@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.foundation.layout.size
 import eth.serotine.ui.components.ClearSignedDescription
+import eth.serotine.ui.components.DappSafeTxBlock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -93,7 +94,8 @@ fun DappRequestRoute(
  * someone do when decoded, its domain and every field; the warnings;
  * and the unlock, with Refuse beside it. One that cannot be signed shows why, its Sign greyed out and
  * still tappable. Nothing on it is read from the chain, except, for typed data no hand-written decoder knows,
- * the verifying contract's code, which a built-in description is bound to (docs/clear-signing.md, A4).
+ * the verifying contract's code, which a built-in description is bound to (docs/clear-signing.md, A4), and for a
+ * Safe transaction the Safe itself and its call's contract (docs/walletconnect.md, *A Safe transaction to sign*).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -217,7 +219,10 @@ fun DappRequestScreen(
             }
             Text(
                 // Only where a description was asked for did Punicus read anything: the verifying contract's code.
-                if (state.describing || state.described != null || state.notDescribed != null) {
+                if (state.safeTx != null) {
+                    "Signing sends no transaction. Punicus read the Safe from the chain, with the light client, to " +
+                        "show it here."
+                } else if (state.describing || state.described != null || state.notDescribed != null) {
                     "Signing sends no transaction. To describe this data, Punicus read the code of the contract " +
                         "that checks it, from the chain."
                 } else {
@@ -282,9 +287,16 @@ private fun TypedDataSections(state: DappRequestUiState) {
     state.meaning?.let { meaning ->
         Heading("What signing it lets someone do")
         Text(meaning, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        // An unlimited power is said first, before the fields that spell it out.
+        state.meaningWarnings.forEach {
+            Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error)
+        }
         state.meaningFields.forEach { Field(it) }
+        state.safeTx?.let { DappSafeTxBlock(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
     }
-    if (state.describing || state.described != null || state.notDescribed != null) Heading("What signing it lets someone do")
+    if (state.safeTx == null && (state.describing || state.described != null || state.notDescribed != null)) {
+        Heading("What signing it lets someone do")
+    }
     if (state.describing) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -311,6 +323,7 @@ private fun TypedDataSections(state: DappRequestUiState) {
         when {
             state.described?.partly == true -> "Every field, partly described above"
             state.meaning == null && state.described == null -> "Every field, not decoded"
+            state.safeTx != null -> "Every field, as decoded above"
             else -> "Every field"
         },
     )

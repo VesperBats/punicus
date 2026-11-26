@@ -162,7 +162,8 @@ class DappTransactionViewModelTest {
                 traceAnswer
             },
             QuoteDappTransaction(
-                requests, accounts, networks, catalog, balances, inputs, sent, history, Outbox.None, clock = { now },
+                requests, accounts, networks, catalog, balances, inputs, sent, history, Outbox.None, safes.observeSafe,
+                clock = { now },
             ),
             SendDappTransaction(requests, accounts, networks, signer, broadcaster, sent, history, FakeReceipts(), clock = { now }),
             // A Safe's side, never reached from an account held here.
@@ -174,6 +175,7 @@ class DappTransactionViewModelTest {
             RefuseDappRequest(requests, accounts, networks, clock = { now }),
             DescribeKeyStore(FakeKeys()),
             observeSyncPolicy = ObserveSyncPolicy(MemorySyncPolicy()),
+            observeSafe = safes.observeSafe,
             clock = { now },
             timeSource = clock,
             ticks = kotlinx.coroutines.flow.flowOf(Unit),

@@ -267,6 +267,9 @@ object Eip712 {
         return false
     }
 
+    /** The bytes a `bytes` or `bytesN` value holds, once [encode] has checked it: its hex read. */
+    fun bytesOf(value: TypedValue): ByteArray = hexBytes(value)
+
     private fun hexBytes(value: TypedValue): ByteArray {
         val text = (value as? TypedValue.Text)?.text?.takeIf { HEX.matches(it) && it.length % 2 == 0 }
             ?: throw IllegalArgumentException("not hex bytes")

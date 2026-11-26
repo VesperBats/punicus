@@ -57,6 +57,29 @@ sealed interface TypedDataMeaning {
         val partiallyFillable: Boolean,
     ) : TypedDataMeaning
 
+    /**
+     * A Safe transaction ([tx]) of the Safe at [safe] (the domain's verifying contract), for one of its owners to
+     * sign, as Safe{Wallet} asks an owner connected over WalletConnect: Safe's own `SafeTx` struct, unchanged since
+     * 1.0.0, with the domain of Safe 1.3.0 on (`chainId`, `verifyingContract`) or the one before it
+     * (`verifyingContract` alone). What it does is decoded from its fields ([SafeTxAction]), as screen 17 decodes
+     * one (docs/walletconnect.md, *A Safe transaction to sign*).
+     */
+    data class SafeTransaction(val safe: Address, val tx: SafeTx) : TypedDataMeaning
+
+    /**
+     * A message signed for the Safe at [safe] (the domain's verifying contract), for one of its owners to sign, as
+     * Safe{Wallet} asks for an off-chain signature of the Safe (EIP-1271): Safe's `SafeMessage(bytes message)`.
+     * [message] is what the struct holds, as lower-case hex: for Safe{Wallet}, the hash of the message the dApp
+     * asked the Safe to sign, from which that message cannot be read back.
+     */
+    data class SafeMessage(val safe: Address, val message: String) : TypedDataMeaning
+
+    /**
+     * Session keys granted on smart accounts, one per chain ([SmartSessionGrants]): Rhinestone's Smart Sessions v2
+     * `MultiChainSession`. Its domain names no contract, so nothing binds it to code: it is read from the struct.
+     */
+    data class SmartSession(val grants: SmartSessionGrants) : TypedDataMeaning
+
     companion object {
         /** Permit2's address, the same on every chain. */
         val PERMIT2: Address = Address.of("0x000000000022d473030f116ddee9f6b43ac78ba3")
@@ -72,11 +95,23 @@ sealed interface TypedDataMeaning {
             "PermitTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline)" +
                 "TokenPermissions(address token,uint256 amount)"
 
+        private const val SAFE_TX = "SafeTx(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas," +
+            "uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,uint256 nonce)"
+        private const val SAFE_MESSAGE = "SafeMessage(bytes message)"
+
+        // Safe's domains: 1.3.0 on, and the one before it, which names no chain.
+        private const val SAFE_DOMAIN = "EIP712Domain(uint256 chainId,address verifyingContract)"
+        private const val OLD_SAFE_DOMAIN = "EIP712Domain(address verifyingContract)"
+
         /**
          * The struct types this decoder claims, as their `encodeType`: what it says of one of them stands, "not
          * decoded" included, and no clear-signing descriptor describes it (docs/clear-signing.md, A3).
          */
-        val CLAIMED_TYPES: Set<String> get() = setOf(PERMIT, PERMIT_SINGLE, PERMIT_TRANSFER, GPv2Signing.ORDER_TYPE)
+        val CLAIMED_TYPES: Set<String>
+            get() = setOf(
+                PERMIT, PERMIT_SINGLE, PERMIT_TRANSFER, GPv2Signing.ORDER_TYPE, SAFE_TX, SAFE_MESSAGE,
+                SmartSessionGrants.MULTI_CHAIN_SESSION_TYPE,
+            )
 
         /** What [encoded] lets someone do, or null when its struct is not one this app knows. */
         fun of(encoded: EncodedTypedData): TypedDataMeaning? {
@@ -135,9 +170,40 @@ sealed interface TypedDataMeaning {
                         partiallyFillable = (message.getValue("partiallyFillable") as TypedValue.Bool).value,
                     )
                 }
+                SAFE_TX -> {
+                    if (!safeDomain(data)) return null
+                    val operation = SafeOperation.of(uint(message.getValue("operation")).toLongOrNull()?.toInt() ?: -1)
+                        ?: return null
+                    // A nonce past a Long is no nonce a Safe reaches: not decoded.
+                    val nonce = uint(message.getValue("nonce")).toLongOrNull() ?: return null
+                    SafeTransaction(
+                        safe = verifier ?: return null,
+                        tx = SafeTx(
+                            to = address(message.getValue("to")),
+                            value = uint(message.getValue("value")),
+                            data = Eip712.bytesOf(message.getValue("data")),
+                            operation = operation,
+                            safeTxGas = uint(message.getValue("safeTxGas")),
+                            baseGas = uint(message.getValue("baseGas")),
+                            gasPrice = uint(message.getValue("gasPrice")),
+                            gasToken = address(message.getValue("gasToken")),
+                            refundReceiver = address(message.getValue("refundReceiver")),
+                            nonce = nonce,
+                        ),
+                    )
+                }
+                SmartSessionGrants.MULTI_CHAIN_SESSION_TYPE -> SmartSessionGrants.of(encoded)?.let(::SmartSession)
+                SAFE_MESSAGE -> {
+                    if (!safeDomain(data)) return null
+                    SafeMessage(verifier ?: return null, Eip712.bytesOf(message.getValue("message")).toHex())
+                }
                 else -> null
             }
         }
+
+        /** Whether [data]'s domain is a Safe's: exactly the members of one of Safe's own domains. */
+        private fun safeDomain(data: TypedData): Boolean =
+            Eip712.encodeType(data.types, Eip712.DOMAIN_TYPE).let { it == SAFE_DOMAIN || it == OLD_SAFE_DOMAIN }
 
         // The values were checked against their types by Eip712.encode: these only read them.
         private fun address(value: TypedValue): Address = Address.of((value as TypedValue.Text).text)
