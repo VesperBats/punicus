@@ -13,7 +13,7 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 | [Account detail](#account-detail) | `account-detail/` | 74 |
 | [Accounts](#accounts) | `accounts/` | 42 |
 | [Accounts on a tablet](#accounts-tablet) | `accounts-tablet/` | 5 |
-| [Activity detail](#activity-detail) | `activity-detail/` | 20 |
+| [Activity detail](#activity-detail) | `activity-detail/` | 21 |
 | [Add on networks (dialog)](#add-on-networks-dialog) | `add-on-networks-dialog/` | 5 |
 | [Add token](#add-token) | `add-token/` | 11 |
 | [Connected dApps](#connections) | `connections/` | 6 |
@@ -49,7 +49,7 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 | [Account detail (simple mode)](#simple-account-detail) | `simple-account-detail/` | 13 |
 | [Home (simple mode)](#simple-accounts) | `simple-accounts/` | 20 |
 | [Home on a tablet (simple mode)](#simple-accounts-tablet) | `simple-accounts-tablet/` | 5 |
-| [Activity detail (simple mode)](#simple-activity-detail) | `simple-activity-detail/` | 4 |
+| [Activity detail (simple mode)](#simple-activity-detail) | `simple-activity-detail/` | 5 |
 | [Add token (simple mode)](#simple-add-token) | `simple-add-token/` | 2 |
 | [CoW order (simple mode)](#simple-cow-order) | `simple-cow-order/` | 3 |
 | [Create Safe (simple mode)](#simple-create-safe) | `simple-create-safe/` | 3 |
@@ -215,7 +215,7 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 <a name="activity-detail"></a>
 ## Activity detail
 
-`activity-detail/`, 20 states: `sent`, `sent-dark`, `unconfirmed`, `unlisted-token`, `safe-event`, `loading`, `unavailable`, `unfamiliar-sender`, `hidden`, `hidden-dark`, `eth-logged`, `index-row`, `index-row-dark`, `index-row-refused`, `index-row-try-again`, `describe-offer`, `describe-working`, `described`, `described-dark`, `describe-failed`
+`activity-detail/`, 21 states: `sent`, `sent-dark`, `unconfirmed`, `unlisted-token`, `safe-event`, `loading`, `unavailable`, `unfamiliar-sender`, `hidden`, `hidden-dark`, `eth-logged`, `index-row`, `index-row-dark`, `index-row-refused`, `index-row-try-again`, `describe-offer`, `describe-working`, `described`, `described-dark`, `describe-failed`, `describe-not-offered`
 
 <a href="activity-detail/sent.png"><img src="activity-detail/sent.png" width="206" alt="sent"></a>
 <a href="activity-detail/sent-dark.png"><img src="activity-detail/sent-dark.png" width="206" alt="sent-dark"></a>
@@ -237,6 +237,7 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 <a href="activity-detail/described.png"><img src="activity-detail/described.png" width="206" alt="described"></a>
 <a href="activity-detail/described-dark.png"><img src="activity-detail/described-dark.png" width="206" alt="described-dark"></a>
 <a href="activity-detail/describe-failed.png"><img src="activity-detail/describe-failed.png" width="206" alt="describe-failed"></a>
+<a href="activity-detail/describe-not-offered.png"><img src="activity-detail/describe-not-offered.png" width="206" alt="describe-not-offered"></a>
 
 <a name="add-on-networks-dialog"></a>
 ## Add on networks (dialog)
@@ -1032,12 +1033,13 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 <a name="simple-activity-detail"></a>
 ## Activity detail (simple mode)
 
-`simple-activity-detail/`, 4 states: `sent`, `sent-dark`, `hidden`, `hidden-dark`
+`simple-activity-detail/`, 5 states: `sent`, `sent-dark`, `hidden`, `hidden-dark`, `describe-offer`
 
 <a href="simple-activity-detail/sent.png"><img src="simple-activity-detail/sent.png" width="206" alt="sent"></a>
 <a href="simple-activity-detail/sent-dark.png"><img src="simple-activity-detail/sent-dark.png" width="206" alt="sent-dark"></a>
 <a href="simple-activity-detail/hidden.png"><img src="simple-activity-detail/hidden.png" width="206" alt="hidden"></a>
 <a href="simple-activity-detail/hidden-dark.png"><img src="simple-activity-detail/hidden-dark.png" width="206" alt="hidden-dark"></a>
+<a href="simple-activity-detail/describe-offer.png"><img src="simple-activity-detail/describe-offer.png" width="206" alt="describe-offer"></a>
 
 <a name="simple-add-token"></a>
 ## Add token (simple mode)
