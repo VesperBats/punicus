@@ -508,7 +508,7 @@ class DappRequestViewModelTest {
     }
 
     @Test
-    fun gnosisPaysCardLimitIsReadAsOne() = runTest {
+    fun aCardLimitOffGnosisChainIsRefused() = runTest {
         fun word(hex: String) = hex.padStart(64, '0')
         val eight = "1b1ae4d6e2ef5000000"
         val inner = "a8ec43ee" + "fe687fc128d1915040376d20ccb1bf40d838ddd82bf9b0ba3da683cc2a251623" + word(eight) +
@@ -529,10 +529,10 @@ class DappRequestViewModelTest {
         )
         requests.waiting.value = listOf(request(13).copy(ask = DappAsk.SignTypedData(held.address, Eip712.encode(typed)!!)))
         val state = viewModel(13).uiState.value
-        assertEquals("Card limit change to sign", state.title)
-        assertTrue(state.meaning!!.startsWith("Sets the Gnosis Pay card's spending limit to 8,000 a day"), state.meaning)
-        assertTrue(state.warnings.isEmpty(), "${state.warnings}")
-        assertNull(state.refusal)
+        // Gnosis Pay runs on Gnosis Chain alone: elsewhere it is read, and refused.
+        assertEquals("Module transaction to sign", state.title)
+        assertEquals("It is not for Gnosis Chain, where Gnosis Pay runs.", state.refusal)
+        assertEquals(DappRequestViewModel.moduleTxRefusalText(eth.serotine.domain.usecase.ModuleTxRefusal.NotAccountsDelay), state.moduleLine)
     }
 
     @Test

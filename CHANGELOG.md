@@ -14,9 +14,9 @@ and issues of this repository.
 
 - Gnosis Pay's app can ask, over WalletConnect, for a change of the card's
   daily limit, and Punicus reads it: "Sets the Gnosis Pay card's spending
-  limit to 8,000 a day", with the Delay module it is queued in and every
-  value raw. Anything else asked through the account's Delay is decoded as a
-  Safe transaction and held to the Safe refusals.
+  limit to 8,000 a day", every value raw. It is signed only through the
+  verified Delay of a Gnosis Pay account in this wallet, by one of its
+  members; anything else asked that way is shown and refused.
 
 - Requests from public wallet-testing sites are recognised: MetaMask's test
   dApp and Reown's sample dApp (both over WalletConnect) and Walletbeat's

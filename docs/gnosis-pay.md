@@ -57,8 +57,10 @@ through the Delay module:
 | `0x4A97E65188A950Dd4b0f21F9b5434dAeE0BBF9f5` | retired | recognised and shown; Send greyed out, saying why |
 
 Both are pinned in `eth.serotine.data.safe.DelayDeployments`. The public
-reports of the exploit do not name its root cause. Punicus never uses the
-relayed path described below, and it checks the queue itself before an
+reports of the exploit do not name its root cause. Punicus never sends
+through the relayed path described below, signs for it only Gnosis Pay's
+card limit change through a Delay of the current mastercopy (*A change
+signed for Gnosis Pay's app*), and checks the queue itself before an
 execution (*Sending*).
 
 ## Detection
@@ -249,7 +251,7 @@ saw how. The list is this device's: after a reinstall, or on another device,
 a transfer queued before is not found, though the Delay's `TransactionAdded`
 log holds its fields (open, the owner's to decide).
 
-**Only plain transfers** are queued: the Safe's xDAI as the value with no
+**Only plain transfers** are queued by Punicus itself: the Safe's xDAI as the value with no
 data, or an ERC-20 `transfer(to, amount)` with no value; operation CALL;
 never to the Safe itself, to one of its modules or to the Delay. The one
 exception is a member of the Delay added or removed (*Adding and removing a
@@ -276,26 +278,25 @@ relayer: it signs, on D5, what the dApp asked, and the dApp sends it.
 - **Read exactly** (`ModuleTransaction`): `data` as the Delay's
   `execTransactionFromModule(to, value, data, operation)`, the call the Safe
   makes once the queued entry is executed after the cooldown.
-- **The card's limit** (account-kit's `populateLimitEnqueue`): a Roles v2
-  `setAllowance(key, balance, maxRefill, refill, period, timestamp)` under
-  `keccak256("SPENDING_ALLOWANCE")`, sent to the account's bouncer. Shown as
-  the card's spending limit per period, in the card's currency at 18
-  decimals (EURe, GBPe), every value raw beside it. The bouncer's address is
-  account-kit's prediction and is not checked here.
-- **Anything else** the Safe would do through the Delay is decoded as a Safe
-  transaction is, its settings read as the Safe's own, and held to the Safe
-  refusals (`.claude/rules/trust.md`): a module enabled through the Delay is
-  refused. A call not read here is warned about as unusual: Gnosis Pay's
-  own changes are read. The data does not name the Safe, so a call of it
-  that is no settings change cannot be told from another contract's.
+- **Signed only for the card's limit** (account-kit's
+  `populateLimitEnqueue`): a Roles v2 `setAllowance(key, balance, maxRefill,
+  refill, period, timestamp)` under `keccak256("SPENDING_ALLOWANCE")`, no
+  value, operation CALL, to neither the Delay nor the Safe (the account's
+  bouncer, account-kit's prediction, not checked here), on Gnosis Chain.
+  Shown as the card's spending limit per period, in the card's currency at 18
+  decimals (EURe, GBPe), every value raw beside it.
+- **Through a verified Delay only**: the contract the message names must be
+  the Delay of a Gnosis Pay account in this wallet, as the light client
+  reads it (`GnosisPayDelayCheck`: a proxy of the current mastercopy, its
+  avatar, target and owner the Safe), with the signer one of its members.
+  The screen says so, with the Delay's cooldown and window; anything else
+  greys Sign out, saying why. The check is made again when it is signed.
+- **Anything else** asked this way is shown, decoded as a Safe transaction
+  is with its own warnings, and refused: nothing but the card's limit is
+  signed for the relayer, as nothing else but plain transfers and member
+  changes is queued here.
 
-**The card's allowance is never a cap.** The chain does not hold the member
-to the Roles allowance, so neither does Punicus. Showing the allowance was
-asked for. It waits until where today's accounts keep it is known: on the
-accounts read on 2026-11-15, the Roles allowance under account-kit's
-`SPENDING_ALLOWANCE` key reads zero.
-
-### Skipping expired entries
+## Skipping expired entries
 
 (Owner's request, 2026-11-18: "Handle expired request with skipExpired".)
 
@@ -372,7 +373,8 @@ The rules:
    could never be executed. Transfers through such a Delay stay allowed: one
    that cannot run is cured by funding the Safe.
 5. **Nothing else** beyond plain transfers and these two calls is ever
-   queued. *Enabling a Safe module is refused* (a module on the Safe itself)
+   queued, but for the card limit change signed for Gnosis Pay's relayer
+   (*A change signed for Gnosis Pay's app*). *Enabling a Safe module is refused* (a module on the Safe itself)
    stands unchanged.
 
 How it is checked:

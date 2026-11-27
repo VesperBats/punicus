@@ -37,7 +37,7 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
             is TypedDataMeaning.SafeMessage -> "Safe message to sign"
             is TypedDataMeaning.SmartSession -> "Session key to grant"
             is TypedDataMeaning.ModuleTx ->
-                if ((content.meaning as TypedDataMeaning.ModuleTx).tx.call?.allowance?.spending == true) "Card limit change to sign" else "Delay transaction to sign"
+                if (cardLimit((content.meaning as TypedDataMeaning.ModuleTx).tx)) "Card limit change to sign" else "Module transaction to sign"
             null -> "Data to sign"
         }
 
@@ -50,7 +50,7 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
             is TypedDataMeaning.SafeTransaction -> "Sign a Safe transaction"
             is TypedDataMeaning.SafeMessage -> "Sign a message for a Safe"
             is TypedDataMeaning.SmartSession -> "Grant a session key"
-            is TypedDataMeaning.ModuleTx -> "Sign a transaction for a Delay module"
+            is TypedDataMeaning.ModuleTx -> "Sign a module transaction"
             null -> "Sign a dApp's data"
         }
 
@@ -86,7 +86,8 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
 
     /** What to know before granting a session key, at the top: each power that has no limit. */
     val meaningWarnings: List<String>
-        get() = (content.meaning as? TypedDataMeaning.SmartSession)?.grants?.grants.orEmpty().flatMap { grant ->
+        get() = ((content.meaning as? TypedDataMeaning.ModuleTx)?.let { moduleWarnings(it.tx) } ?: emptyList()) +
+            (content.meaning as? TypedDataMeaning.SmartSession)?.grants?.grants.orEmpty().flatMap { grant ->
             listOfNotNull(
                 SESSION_ANY_CALL.takeIf { grant.anyCall },
                 SESSION_SUDO.takeIf { grant.sudo },
@@ -172,31 +173,43 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
             null -> emptyList()
         }
 
+    /** Whether [tx] is Gnosis Pay's card limit change, on Gnosis Chain: the one such call Punicus signs. */
+    private fun cardLimit(tx: ModuleTransaction): Boolean =
+        tx.call?.allowance?.spending == true && network() == Network.GNOSIS && tx.call?.to != tx.modifier
+
+    /** What a module transaction's inner call says of itself, when it is no card limit: its item, as screen 17 shows it. */
+    private fun innerItem(tx: ModuleTransaction) = tx.call?.takeIf { it.allowance == null }?.let { call ->
+        eth.serotine.ui.components.safeTxActionItem(
+            call.action, null, content.tokens.values.map { eth.serotine.ui.components.DecodingToken(it) }, network(),
+        )
+    }
+
     private fun moduleMeaning(tx: ModuleTransaction): String {
-        val delay = short(tx.modifier)
-        val queued = "Signed, Gnosis Pay's relayer (or anyone) can hand it to the Delay module $delay as your " +
-            "call: the Delay queues it, and once its cooldown has passed anyone can execute it on the account's Safe."
-        val call = tx.call ?: return "A call for the Delay module $delay that Punicus does not read. $queued"
+        val contract = short(tx.modifier)
+        // What the contract is, a Gnosis Pay account's Delay or not, is the light client's to say, beside this.
+        val queued = "Signed, Gnosis Pay's relayer (or anyone) can hand it to the contract $contract as your call. " +
+            "If that contract is your Gnosis Pay account's Delay module, it queues the call for the account's Safe."
+        val call = tx.call ?: return "A call for the contract $contract that Punicus does not read. $queued"
         val allowance = call.allowance
-        if (allowance != null && allowance.spending) {
-            val per = period(allowance.period)
+        if (allowance != null && cardLimit(tx)) {
             val full = allowance.balance == allowance.refill && allowance.maxRefill == allowance.refill
-            return "Sets the Gnosis Pay card's spending limit to ${cardAmount(allowance.refill)} $per, in the card's " +
-                "currency (EURe or GBPe)" + (if (full) "" else ", with ${cardAmount(allowance.balance)} spendable now " +
-                "and at most ${cardAmount(allowance.maxRefill)} held") + ". $queued"
+            return "Sets the Gnosis Pay card's spending limit to ${cardAmount(allowance.refill)} " +
+                "${period(allowance.period).perPeriod}, in the card's currency (EURe or GBPe)" +
+                (if (full) "" else ", with ${cardAmount(allowance.balance)} spendable now and at most " +
+                    "${cardAmount(allowance.maxRefill)} held") + ". $queued"
         }
         if (allowance != null) {
             return "Sets a Roles allowance (key 0x${allowance.key.take(8)}…) to ${allowance.refill.toDecimal()} units " +
-                "${period(allowance.period)}. $queued"
+                "${period(allowance.period).perPeriod}. $queued"
         }
-        val item = eth.serotine.ui.components.safeTxActionItem(
-            call.action, null, content.tokens.values.map { eth.serotine.ui.components.DecodingToken(it) }, network(),
-        )
-        return "The Safe would: ${item.title}. $queued"
+        return "The Safe would: ${innerItem(tx)?.title}. $queued"
     }
 
+    /** What to know first of a module transaction that is no card limit: its inner call's own warning. */
+    private fun moduleWarnings(tx: ModuleTransaction): List<String> = listOfNotNull(innerItem(tx)?.warning)
+
     private fun moduleFields(tx: ModuleTransaction): List<SignInField> = buildList {
-        add(SignInField("Delay module", Eip55.format(tx.modifier)))
+        add(SignInField("Contract it is for", Eip55.format(tx.modifier)))
         val call = tx.call
         if (call == null) {
             add(SignInField("Call", "${tx.dataSize} bytes, not read here"))
@@ -213,17 +226,17 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
                 ),
             )
             if (allowance != null) {
+                val per = period(allowance.period)
                 add(SignInField("Allowance", if (allowance.spending) "The card's spending limit (SPENDING_ALLOWANCE)" else "0x${allowance.key}"))
-                add(SignInField("Refill", "${amountOf(allowance.refill, allowance.spending)} every ${period(allowance.period).removePrefix("a ").removePrefix("every ")}"))
+                add(SignInField("Refill", "${amountOf(allowance.refill, allowance.spending)} ${per.perPeriod}"))
                 add(SignInField("Most it holds", amountOf(allowance.maxRefill, allowance.spending)))
                 add(SignInField("Spendable now", amountOf(allowance.balance, allowance.spending)))
                 add(SignInField("Counted from", if (allowance.timestamp == 0L) "Now" else formatTime(allowance.timestamp)))
             } else {
-                val item = eth.serotine.ui.components.safeTxActionItem(
-                    call.action, null, content.tokens.values.map { eth.serotine.ui.components.DecodingToken(it) }, network(),
-                )
-                add(SignInField("The Safe would", item.title))
-                item.addresses.forEach { add(SignInField(it.what, it.address)) }
+                val item = innerItem(tx)
+                item?.let { add(SignInField("The Safe would", it.title)) }
+                item?.addresses?.forEach { add(SignInField(it.what, it.address)) }
+                item?.notes?.forEach { add(SignInField("Note", it)) }
                 if (call.operation == eth.serotine.domain.model.SafeOperation.DELEGATECALL) add(SignInField("Operation", "Delegate call"))
             }
         }
@@ -234,7 +247,7 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
     private fun network(): Network = (data.domain["chainId"]?.let(Eip712::unsignedOf)?.toLongOrNull())
         ?.let(Network::ofChainId) ?: Network.GNOSIS
 
-    /** [value] of the card's currency, counted at 18 decimals as EURe and GBPe are, its raw form beside it. */
+    /** [value] of the card's currency, counted at 18 decimals as EURe and GBPe are, grouped by thousands. */
     private fun cardAmount(value: UInt256): String {
         val (whole, fraction) = value.formatUnits(18).split('.').let { it[0] to it.getOrNull(1) }
         val grouped = whole.reversed().chunked(3).joinToString(",").reversed()
@@ -245,12 +258,19 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
         if (card) "${cardAmount(value)} (18 decimals, as EURe and GBPe count; raw ${value.toDecimal()})"
         else value.toDecimal()
 
-    private fun period(seconds: Long): String = when (seconds) {
-        86_400L -> "a day"
-        604_800L -> "a week"
-        3_600L -> "an hour"
-        else -> "every $seconds seconds"
+    /** How an allowance's period reads after an amount ("a day"), and on its own. */
+    private class Period(val perPeriod: String)
+
+    private fun period(seconds: Long): Period = when (seconds) {
+        // Roles v2 refills nothing with no period: the balance is a one-off amount.
+        0L -> Period("once, never refilled")
+        3_600L -> Period("an hour")
+        86_400L -> Period("a day")
+        604_800L -> Period("a week")
+        else -> Period("every ${grouped(seconds)} seconds")
     }
+
+    private fun grouped(value: Long): String = value.toString().reversed().chunked(3).joinToString(",").reversed()
 
     private fun sessionMeaning(meaning: TypedDataMeaning.SmartSession): String {
         val grants = meaning.grants.grants

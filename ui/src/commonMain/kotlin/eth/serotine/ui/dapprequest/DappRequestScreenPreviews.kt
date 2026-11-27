@@ -674,8 +674,20 @@ private val cardLimit: DappRequestUiState = run {
         meaningFields = text.meaningFields,
         domainFields = text.domainFields,
         typedRows = text.rows,
+        moduleLine = "The Delay module of your Gnosis Pay account 0x425E7c0C12E60Bc7Fe106AC3b44FA9D0602CA0AB, " +
+            "verified by the light client: a queued call waits 3 minutes, then may be executed for 30 minutes. The " +
+            "account asked is one of its members.",
     )
 }
+
+private val cardLimitNotAccounts = cardLimit.copy(
+    moduleLine = DappRequestViewModel.moduleTxRefusalText(eth.serotine.domain.usecase.ModuleTxRefusal.NotAccountsDelay),
+    refusal = DappRequestViewModel.moduleTxRefusalText(eth.serotine.domain.usecase.ModuleTxRefusal.NotAccountsDelay),
+)
+
+@Preview
+@Composable
+private fun DappRequestCardLimitNotAccountsPreview() = DappRequestPreview(cardLimitNotAccounts)
 
 @Preview
 @Composable
@@ -718,6 +730,7 @@ internal val dappRequestScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("per-app-linked") { DappRequestPerAppLinkedPreview() },
     ScreenPreview("card-limit") { DappRequestCardLimitPreview() },
     ScreenPreview("card-limit-dark") { DappRequestCardLimitDarkPreview() },
+    ScreenPreview("card-limit-not-accounts") { DappRequestCardLimitNotAccountsPreview() },
     ScreenPreview("safe-transfer") { DappRequestSafeTransferPreview() },
     ScreenPreview("safe-transfer-dark") { DappRequestSafeTransferDarkPreview() },
     ScreenPreview("safe-batch") { DappRequestSafeBatchPreview() },

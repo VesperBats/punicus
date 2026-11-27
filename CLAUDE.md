@@ -247,7 +247,9 @@ Full text: `.claude/rules/trust.md`. These rules bind every change.
   that owns a member Safe, through Safes of threshold 1 (owner's request,
   2026-11-17). Such a key may also add or remove a member of that Delay the
   same way, never its last one, and never through a Delay whose entries never
-  expire (owner ruling and decision, 2026-11-18).
+  expire (owner ruling and decision, 2026-11-18). A member may sign Gnosis
+  Pay's card limit change for its relayer, through a verified Delay of the
+  wallet's account, and nothing else that way (owner's request, 2026-11-27).
 - A Swarm node is added as a watched address (no `swarm.key` import); its
   batches and chequebook are managed through pinned contracts only (owner's
   decisions, 2026-11-23; docs/swarm.md). Its key may be imported in hex like
