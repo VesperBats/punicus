@@ -130,6 +130,11 @@ hosts add theirs back, and restore the `<configuration>` block from `HEAD`.
   the dependency lock state": a dependency changed without its pins. If you
   changed it, run the loop above. If you did not, stop: an artifact's bytes
   changed under a pinned version. Find out why before re-pinning.
+- **IDE sources and javadoc** are trusted without hashes
+  (`<trusted-artifacts>` in the metadata, as in Myotis), so the jars Android
+  Studio and IntelliJ download on a sync do not fail it. They are never on a
+  build classpath. Gradle drops XML comments when it rewrites the file, so the
+  explanation lives here.
 - **The wrapper** is regenerated with the checksum, or the `wrapper` task
   drops it: `./gradlew wrapper --gradle-version <v> --gradle-distribution-sha256-sum <sha>`.
 - **PGP signatures are not checked**, only SHA-256, as in Myotis. Gradle's
