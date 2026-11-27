@@ -31,7 +31,13 @@ const val SAFE_TX_ACTION_TAG = "safe-tx-action"
  * does, and its warning. What the user confirms before signing, so nothing is shortened.
  */
 @Composable
-fun SafeTxActionCard(action: SafeTxActionItem, modifier: Modifier = Modifier, onRetrace: () -> Unit = {}) {
+fun SafeTxActionCard(
+    action: SafeTxActionItem,
+    modifier: Modifier = Modifier,
+    onRetrace: () -> Unit = {},
+    /** Whether its addresses can be selected: not for a transaction a third party chose (#324). */
+    selectable: Boolean = true,
+) {
     Surface(
         modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -55,12 +61,12 @@ fun SafeTxActionCard(action: SafeTxActionItem, modifier: Modifier = Modifier, on
                     Column(Modifier.weight(1f)) {
                         Text(line.what, style = MaterialTheme.typography.labelMedium)
                         // In full: what the owners sign is this address.
-                        SelectionContainer {
-                            Text(
-                                line.address,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                            )
+                        if (selectable) {
+                            SelectionContainer {
+                                Text(line.address, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                            }
+                        } else {
+                            Text(line.address, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
                         }
                     }
                 }
@@ -71,7 +77,7 @@ fun SafeTxActionCard(action: SafeTxActionItem, modifier: Modifier = Modifier, on
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            action.described?.let { ClearSignedDescription(it) }
+            action.described?.let { ClearSignedDescription(it, selectable) }
             action.notes.forEach { note -> Text(note, style = MaterialTheme.typography.bodySmall) }
             action.notDescribed?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
@@ -81,7 +87,7 @@ fun SafeTxActionCard(action: SafeTxActionItem, modifier: Modifier = Modifier, on
             }
             action.calls.forEachIndexed { index, call ->
                 Text("Call ${index + 1} of ${action.calls.size}", style = MaterialTheme.typography.labelLarge)
-                SafeTxActionCard(call, Modifier.padding(start = 8.dp))
+                SafeTxActionCard(call, Modifier.padding(start = 8.dp), selectable = selectable)
             }
             action.trace?.let { TracedEffects(it, onRetrace, Modifier) }
         }

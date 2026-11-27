@@ -12,6 +12,14 @@ and issues of this repository.
 
 ### Added
 
+- A transaction in Activity can be described on a tap: *Describe this
+  transaction* on its detail reads its call (from this device's record, or by
+  downloading its block, whose usual size the button says) and puts it in
+  words as the built-in descriptions would before signing, a Safe's
+  execution as what the Safe ran. It says it is described after the fact,
+  against the contract's code as it is today, and for an upgradeable
+  contract that the code may have been different then.
+
 - Requests from public wallet-testing sites are recognised: MetaMask's test
   dApp and Reown's sample dApp (both over WalletConnect) and Walletbeat's
   test playground. A known test signature says which test it is, byte for

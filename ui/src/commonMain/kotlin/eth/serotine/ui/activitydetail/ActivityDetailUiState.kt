@@ -39,6 +39,13 @@ sealed interface ActivityDetailUiState {
         val opensStatus: String? = null,
         val simpleStatus: String? = null,
         val amountsHidden: Boolean = false,
+        /**
+         * Describing its call on the user's tap (docs/clear-signing.md, *Past transactions*): offered where there is
+         * a transaction to read; null where there is none.
+         */
+        val describe: PastDescribeSection? = null,
+        /** The transaction Describe reads, where the row names one. */
+        val describeAt: DescribeAt? = null,
     ) : ActivityDetailUiState
 
     /**
@@ -80,4 +87,46 @@ enum class DetailKind {
 
     /** A block number: drawn as [TEXT], and kept behind *Details* in simple mode (docs/simple-ui.md). */
     BLOCK,
+}
+
+/** The transaction a row is of, for Describe: its [hash] and its [block] where one is known. */
+data class DescribeAt(val hash: String, val block: Long?)
+
+/**
+ * Describing a past transaction's call on the user's tap (owner's decisions, 2026-11-27; docs/clear-signing.md,
+ * *Past transactions*), display-ready. Each state carries what the tap reads and downloads ([offer]; [simpleOffer] in
+ * simple mode's words, with no block number).
+ */
+sealed interface PastDescribeSection {
+    val offer: String
+    val simpleOffer: String
+
+    /** Before the tap. */
+    data class Offer(override val offer: String, override val simpleOffer: String) : PastDescribeSection
+
+    /** Not here, for [reason]: Describe greyed out, a tap saying why (owner ruling, 2026-10-18, #55). */
+    data class NotOffered(override val offer: String, override val simpleOffer: String, val reason: String) :
+        PastDescribeSection
+
+    /** Reading its call and checking the contract's code. */
+    data class Working(override val offer: String, override val simpleOffer: String) : PastDescribeSection
+
+    /**
+     * What it found: [headline] (what the call did as Punicus reads it itself), the Safe transaction an execution
+     * ran ([safeAction]), the description ([described]), and the [notes] that say what it rests on. [selectable] false
+     * for a transaction a third party sent, whose addresses it chose (#324).
+     */
+    data class Described(
+        override val offer: String,
+        override val simpleOffer: String,
+        val headline: String? = null,
+        val safeAction: eth.serotine.ui.components.SafeTxActionItem? = null,
+        val described: eth.serotine.ui.components.ClearSignedSection? = null,
+        val notes: List<String> = emptyList(),
+        val selectable: Boolean = true,
+    ) : PastDescribeSection
+
+    /** It could not be read, for [reason]; Describe may be tried again. */
+    data class Failed(override val offer: String, override val simpleOffer: String, val reason: String) :
+        PastDescribeSection
 }

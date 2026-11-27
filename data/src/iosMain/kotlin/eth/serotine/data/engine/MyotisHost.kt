@@ -508,7 +508,8 @@ class MyotisHost private constructor(
             transactionInputs = EngineTransactionInputs(network, chain, Dispatchers.IO, kept = keptInputsFile),
             broadcaster = EngineBroadcaster(network, chain, Dispatchers.IO),
             receipts = EngineReceipts(network, chain, Dispatchers.IO, POLL_INTERVAL),
-            blockTransactions = EngineBlockTransactions(network, chain, Dispatchers.IO),
+            // Myotis's iOS module reads no block by number yet.
+            blockTransactions = EngineBlockTransactions(network, chain, Dispatchers.IO, eth.serotine.domain.repository.BlockReach.None),
             names = EngineNames(network, chain, Dispatchers.IO),
             safeApprovals = VerifiedSafeApprovals(network, chain, Dispatchers.IO),
             delayModules = VerifiedDelayModules(network, chain, Dispatchers.IO, POLL_INTERVAL),

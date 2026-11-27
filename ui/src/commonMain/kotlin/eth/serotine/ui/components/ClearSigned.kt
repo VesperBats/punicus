@@ -50,6 +50,10 @@ object ClearSignedText {
     const val DESCRIBED_BY = "as the descriptor states (ERC-7730 registry, reviewed for this release). Its " +
         "words are its author's; the values are decoded here from what you sign."
 
+    /** [DESCRIBED_BY] for a transaction that already ran (docs/clear-signing.md, *Past transactions*). */
+    const val DESCRIBED_BY_PAST = "as the descriptor states (ERC-7730 registry, reviewed for this release). Its " +
+        "words are its author's; the values are decoded here from the transaction's call data."
+
     /** Why a descriptor does not describe a call or a message, where that says more than "not decoded"; null otherwise. */
     fun notDescribedLine(reason: NotCoveredReason): String? = when (reason) {
         NotCoveredReason.ContractChanged -> CONTRACT_CHANGED
@@ -73,9 +77,9 @@ object ClearSignedText {
     }
 
     /** [result] as the screen shows it: each value with its raw form where that differs, nested calls indented. */
-    fun describedSection(result: ClearSignResult.ClearSigned): ClearSignedSection = ClearSignedSection(
+    fun describedSection(result: ClearSignResult.ClearSigned, past: Boolean = false): ClearSignedSection = ClearSignedSection(
         intent = result.interpolatedIntent ?: result.intent,
-        describedBy = "Described by ${result.owner}, $DESCRIBED_BY",
+        describedBy = "Described by ${result.owner}, ${if (past) DESCRIBED_BY_PAST else DESCRIBED_BY}",
         rows = rows(result, level = 0),
         otherParameters = result.otherParameters.map { ClearSignedParameter(it.location, it.raw) },
         partly = partlyNotDecoded(result),
@@ -127,7 +131,16 @@ object ClearSignedText {
  * are, each value with its raw form where that differs, nested calls indented, and every other parameter, raw.
  */
 @Composable
-fun ClearSignedDescription(section: ClearSignedSection) {
+fun ClearSignedDescription(
+    section: ClearSignedSection,
+    /**
+     * Whether its values can be selected: not where a third party chose them, an address among them, for a
+     * transaction the account did not send (address poisoning protection, 2026-11-18, #324).
+     */
+    selectable: Boolean = true,
+) {
+    @Composable
+    fun Selectable(content: @Composable () -> Unit) = if (selectable) SelectionContainer { content() } else content()
     Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
         Text(section.intent, style = MaterialTheme.typography.titleMedium)
         Text(
@@ -140,9 +153,9 @@ fun ClearSignedDescription(section: ClearSignedSection) {
     section.rows.forEach { row ->
         Column(Modifier.padding(start = 16.dp + 16.dp * row.level, end = 16.dp, top = 4.dp, bottom = 4.dp)) {
             Text(row.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SelectionContainer { Text(row.value) }
+            Selectable { Text(row.value) }
             row.raw?.let {
-                SelectionContainer {
+                Selectable {
                     Text(
                         "Raw: $it",
                         fontFamily = FontFamily.Monospace,
@@ -163,7 +176,7 @@ fun ClearSignedDescription(section: ClearSignedSection) {
         section.otherParameters.forEach { parameter ->
             Column(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
                 Text(parameter.location, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SelectionContainer {
+                Selectable {
                     Text(parameter.raw, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                 }
             }
