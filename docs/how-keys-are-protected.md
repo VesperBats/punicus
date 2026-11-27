@@ -1131,7 +1131,9 @@ it rather than blaming the password.
 **What the key store signs.** The digest exactly as given, never hashed
 again. What it is the digest of is the caller's to know and to have shown
 you. A dApp cannot hand Punicus a digest of its choosing: `eth_sign` is
-refused in every case (owner rulings, 2026-11-03, #22).
+refused (owner rulings, 2026-11-03, #22), unless you turn on overriding
+refusals in Settings → Advanced and, for that one request, read why it is
+dangerous and type that you accept it (owner ruling, 2026-11-27).
 
 <details>
 <summary><b>Show the code</b>: <code>sign</code>, end to end</summary>

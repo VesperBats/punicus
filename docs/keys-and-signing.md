@@ -1131,7 +1131,7 @@ value:
    Its relay is an off-chain service under *Data sources* in CLAUDE.md, what
    arrives through it is untrusted input, a dApp may call a closed list of
    methods, and `eth_sign`, which would sign a digest the dApp chose, is
-   refused in every case. Reproducible builds let others verify the binary. Calldata
+   refused, but for the user's informed override (owner ruling, 2026-11-27). Reproducible builds let others verify the binary. Calldata
    decoding and transaction simulation protect against malicious dApps, which
    is the common case, but not against the app itself.
 

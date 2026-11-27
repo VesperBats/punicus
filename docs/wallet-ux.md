@@ -1020,6 +1020,17 @@ time*.
       `safeTxGas`; a `safeTxGas` without one lets a failing call use up the
       nonce. Whether to allow bounded terms, with the most a refund costs
       shown, is the owner's open question (issue #58).
+    - **Every refusal above but the facts can be overridden** (owner ruling,
+      2026-11-27; `.claude/rules/trust.md`, *Refuse as little as
+      possible*): with Settings → Advanced → *Allow overriding refusals* on,
+      and never in simple mode, a refused transaction shows, below its
+      refusal, *I understand the risk, sign anyway*. It opens a screen with
+      that refusal's risks in plain words and a phrase to type ("enable
+      module"), then Sign, Approve on chain or Execute as usual. The facts
+      (a nonce used, no owner, a signature that does not recover, the
+      threshold not met, another chain) and a Safe from before 1.3.0 are
+      never overridden. A transaction signed against a refusal is recorded
+      as such, and its queue row and Activity say so.
     - Each owner's state (`ReadSafeTxOwners`): signed (a signature that
       recovers to it over the hash computed here), approved on chain (a
       verified `approvedHashes`), missing, or not verifiable now; a signature

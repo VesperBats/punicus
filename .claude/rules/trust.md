@@ -173,14 +173,59 @@ carve-out of 2026-11-10 and its rulings of 2026-11-11 and 2026-11-13 on #761;
   **Use it anyway**. That is the only call with `allowUnconfirmed`, asked
   again every time and never remembered.
 
+## Refuse as little as possible: an override with informed consent
+
+(Owner ruling, 2026-11-27, in the session that planned it: "Refuse as little
+as possible. Actually have an override that is rarely shown. I believe in
+informed user consent." It amends the refusals below where they say
+"never".)
+
+- **A refusal of judgement can be overridden**, with informed consent:
+  - a Safe transaction that enables a module (#54; the "dangerous mode" of
+    #78);
+  - one that sets a fallback handler other than the pinned one, or none
+    (#63);
+  - a delegate call, a batch through Safe's own MultiSend among them, decoded
+    call by call (#57);
+  - gas or refund terms, with the most the refund can cost (#58);
+  - a call of the Safe itself not decoded exactly;
+  - a change leaving the Safe an n-of-n with no recovery module (#54);
+  - a dApp's Safe transaction that calls the Safe itself, or names a gas limit;
+  - `eth_sign`, with the strongest warning: it signs a hash nobody can read
+    (#22).
+- **Never overridden:**
+  - facts: a nonce used, a signer that is no owner, a signature that does not
+    recover, a threshold not met, another chain or account than the session's;
+  - a signature the contract would not accept: a Safe from before 1.3.0
+    (`SafeTxRefusal.TooOldToSign`);
+  - verification: "Peer-trusted is never an option" (above) stands. Without
+    verified state nothing is signed on trust; lenient mode is the way to
+    sign while syncing.
+  - What is not built (another method, a contract deployment) is a missing
+    feature, not a refusal.
+- **Rarely shown.** One setting, Settings → Advanced → *Allow overriding
+  refusals*, off by default in every build. Off, nothing changes anywhere.
+  On, a refused request still shows its refusal first; below it, a quiet
+  *I understand the risk, sign anyway* opens a screen that says, for that
+  refusal, what can go wrong in plain words, and asks the user to type a
+  short phrase naming it ("enable module"). Only then do the unlock and the
+  signature follow, as for any other.
+- **Never in simple mode**, whatever the setting.
+- **Recorded.** A transaction signed, approved or executed against a refusal
+  is kept as such, and Activity says so.
+- **The refusal's checks still run** with the override: the facts above
+  are checked as for any other, and the override names one refusal, never
+  "all".
+
 ## A Safe's fallback handler is set only to a pinned one
 
 (Owner ruling, 2026-10-18, #63.)
 
 - A Safe transaction that sets a fallback handler other than the pinned
   canonical CompatibilityFallbackHandler 1.4.1 of its network, or sets none
-  (the zero address, which removes it), is shown and never signed, approved
-  or executed here.
+  (the zero address, which removes it), is shown and refused: signed,
+  approved or executed here only through the override above (owner ruling,
+  2026-11-27).
 - Why: the handler answers EIP-1271 signature checks for the Safe. One that
   accepts every signature lets anyone spend what the Safe has approved.
 - A guard removed and a module disabled are signed with a warning, not
@@ -194,11 +239,12 @@ carve-out of 2026-11-10 and its rulings of 2026-11-11 and 2026-11-13 on #761;
 (Owner ruling, 2026-10-18, on #54: play it safe.)
 
 - A Safe transaction that enables a module, whatever the module, is shown
-  and never signed, approved or executed here. A module moves the Safe's
-  funds without its owners.
+  and refused: signed, approved or executed here only through the override
+  above (owner ruling, 2026-11-27). A module moves the Safe's funds without
+  its owners.
 - Disabling a module keeps its warning and is not refused.
-- Which modules may be enabled is still open (#54). A temporary, warned
-  "dangerous mode" past it is planned in #78 and not built.
+- Which modules may be enabled without the override is still open (#54). The
+  override is #78's "dangerous mode".
 
 ## A Gnosis Pay account sends through its Delay module
 
@@ -357,10 +403,11 @@ fails the call.
   session holds. Every other method gets an unsupported-method error. A
   switch to a network outside the session, from testnet to real funds above
   all, gets the unrecognized-chain error (owner ruling, 2026-11-05, on #22).
-- **`eth_sign` is refused in every case.** It signs a raw digest the dApp
-  chose, which is what phishing asks for. A digest Punicus signs for a dApp
-  is one it computed itself: EIP-191 for `personal_sign`, EIP-712 for typed
-  data.
+- **`eth_sign` is refused.** It signs a raw digest the dApp chose, which is
+  what phishing asks for. A digest Punicus signs for a dApp is one it
+  computed itself: EIP-191 for `personal_sign`, EIP-712 for typed data. The
+  override above, with its strongest warning, is the one way past it (owner
+  ruling, 2026-11-27).
 - A request is parsed strictly, with size limits. One that names another
   chain, or a `from` or an address that is not one of the session's accounts,
   is refused, never ignored.

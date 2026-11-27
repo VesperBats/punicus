@@ -237,9 +237,14 @@ Full text: `.claude/rules/trust.md`. These rules bind every change.
   default, a transaction may be signed on the state last verified; nothing
   is sent before a check at a fresh head (owner rulings, 2026-11-06, on
   #258; docs/lenient-mode.md).
+- **Refuse as little as possible; a refusal of judgement has an override
+  with informed consent** (owner ruling, 2026-11-27): off by default behind
+  Settings → Advanced, never in simple mode, each override a typed
+  confirmation after the refusal's risks in plain words, recorded as one.
+  Facts, unusable signatures and verification are never overridden.
 - A Safe transaction that sets a fallback handler other than the pinned one,
   or none (owner ruling, 2026-10-18, #63), or enables a module (owner ruling,
-  2026-10-18, on #54), is shown and never signed, approved or executed.
+  2026-10-18, on #54), is shown and refused, overridable as above.
 - A Gnosis Pay account sends through its own Delay module: a member whose
   key is held here queues a plain transfer, then executes it after the
   cooldown; the current mastercopy only, no relayer, the queue checked
@@ -257,7 +262,8 @@ Full text: `.claude/rules/trust.md`. These rules bind every change.
 - A parameter that can change the answer is APPLIED or REFUSED, never
   accepted and silently ignored (Myotis #314).
 - What a dApp sends is untrusted input, held to a closed method list;
-  `eth_sign` is refused in every case (owner rulings, 2026-11-03, #22). A
+  `eth_sign` is refused (owner rulings, 2026-11-03, #22), overridable as
+  above with the strongest warning (owner ruling, 2026-11-27). A
   call is clear-signed only when bound to verified code, the descriptor's
   words labelled as its claim (owner's decisions, 2026-11-25, #240). A dApp's
   or a Safe's transaction shows its verified trace at the head, a
