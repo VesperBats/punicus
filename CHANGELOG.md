@@ -12,6 +12,15 @@ and issues of this repository.
 
 ### Added
 
+- An override for Punicus's refusals of judgement, with informed consent:
+  Settings → Advanced → *Allow overriding refusals*, off by default and
+  never in simple mode. A refused Safe transaction (a module enabled, an
+  unpinned fallback handler, a delegate call or batch, gas terms, a change
+  leaving an n-of-n) or a dApp's `eth_sign` can then be signed after a
+  screen that says what can go wrong and a phrase typed to accept it, and is
+  recorded as signed against its refusal. Facts and verification are never
+  overridden.
+
 - Requests from public wallet-testing sites are recognised: MetaMask's test
   dApp and Reown's sample dApp (both over WalletConnect) and Walletbeat's
   test playground. A known test signature says which test it is, byte for

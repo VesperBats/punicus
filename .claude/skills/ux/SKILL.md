@@ -74,8 +74,10 @@ most designs touch:
   2026-10-20). **Rows on their way hold their room**: ghost rows (owner's
   request, 2026-10-22). **Long press is never the only way.**
 - A Safe transaction that would set the fallback handler or enable a module
-  is shown and never signed, approved or executed (owner rulings,
-  2026-10-18, #63 and on #54). The design shows the refusal and its reason.
+  is shown and refused (owner rulings, 2026-10-18, #63 and on #54). The
+  design shows the refusal and its reason; past it, only the override with
+  informed consent (owner ruling, 2026-11-27; `.claude/rules/trust.md`,
+  *Refuse as little as possible*), rarely shown.
 
 ## How a design lands
 

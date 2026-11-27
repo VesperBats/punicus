@@ -47,7 +47,9 @@ diff at step 2 of the Workflow.
    and a lenient draft's labelled values (`.claude/rules/trust.md`,
    *Lenient mode*); a lenient transaction sent before its check; a
    Safe transaction that sets a fallback handler or enables a module and is
-   signed, approved or executed; an upgrade warning that does not say peers
+   signed, approved or executed other than through the override with
+   informed consent (*Refuse as little as possible*); an override that
+   reaches a fact, an unusable signature or unverified state; an upgrade warning that does not say peers
    report it; private key material in a UiState, a log line, a `toString()`
    or a serialized form outside the key store; a mnemonic outside its one
    path; an envelope that opens without both factors.

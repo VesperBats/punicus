@@ -957,19 +957,20 @@ time*.
       for it no longer work; owner's decision, 2026-10-20, on #106's
       review). A fallback handler set that is not the pinned canonical
       CompatibilityFallbackHandler 1.4.1 (`0xfd0732Dc…Ec99`,
-      `PinnedFallbackHandlers`) is refused: shown, and never signed,
-      approved or executed here (`SafeTxRefusal.UnpinnedFallbackHandler`;
-      owner ruling, 2026-10-18, #63), on 16's row and 17 with its reason.
+      `PinnedFallbackHandlers`) is refused: shown, and signed, approved or
+      executed here only through the override below
+      (`SafeTxRefusal.UnpinnedFallbackHandler`; owner ruling, 2026-10-18,
+      #63, amended 2026-11-27), on 16's row and 17 with its reason.
       Setting the pinned one, or removing the handler, is signed with its
       warning; so are a guard removed and a module disabled, which keep
       their warning and are not refused. A module enabled is no longer a
-      warning alone: it is refused, whatever the module, shown and never
-      signed, approved or executed here (`SafeTxRefusal.ModuleEnabled`;
+      warning alone: it is refused, whatever the module, shown and signed,
+      approved or executed here only through the override below
+      (`SafeTxRefusal.ModuleEnabled`;
       owner ruling, 2026-10-18, on #54: play it safe), on 16's row and 17
       with its reason, "Enabling a module is refused: a module can move the
       Safe's funds without its owners. Which modules may be enabled is still
-      open (#54)." A temporary, warned "dangerous mode" past it is planned
-      (#78), not built.
+      open (#54)." The override below is #78's "dangerous mode".
     - A call of the Safe itself is signed only when it decodes exactly: a
       settings change whose data is that function's encoding, or the empty,
       zero-value rejection. Any other self-call, whatever its selector (a
@@ -1020,6 +1021,17 @@ time*.
       `safeTxGas`; a `safeTxGas` without one lets a failing call use up the
       nonce. Whether to allow bounded terms, with the most a refund costs
       shown, is the owner's open question (issue #58).
+    - **Every refusal above but the facts can be overridden** (owner ruling,
+      2026-11-27; `.claude/rules/trust.md`, *Refuse as little as
+      possible*): with Settings → Advanced → *Allow overriding refusals* on,
+      and never in simple mode, a refused transaction shows, below its
+      refusal, *I understand the risk, sign anyway*. It opens a screen with
+      that refusal's risks in plain words and a phrase to type ("enable
+      module"), then Sign, Approve on chain or Execute as usual. The facts
+      (a nonce used, no owner, a signature that does not recover, the
+      threshold not met, another chain) and a Safe from before 1.3.0 are
+      never overridden. A transaction signed against a refusal is recorded
+      as such, and its queue row and Activity say so.
     - Each owner's state (`ReadSafeTxOwners`): signed (a signature that
       recovers to it over the hash computed here), approved on chain (a
       verified `approvedHashes`), missing, or not verifiable now; a signature

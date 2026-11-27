@@ -45,8 +45,10 @@ two open points, the chains and the order.
    `personal_sign`, `eth_signTypedData_v4`, and `wallet_switchEthereumChain`
    to a network the session holds (ruling 9, as amended). Every other method
    gets an
-   unsupported-method error. `eth_sign` is refused in every case: it signs a
-   raw digest, which is what phishing asks for.
+   unsupported-method error. `eth_sign` is refused: it signs a raw digest,
+   which is what phishing asks for. (Amended by the owner's ruling of
+   2026-11-27: the user may override the refusal, with informed consent;
+   *Overriding a refusal*, below.)
 7. **WalletConnect's optional services stay off:** the Verify API, fetching
    dApp icons, the push (echo) server and Link Mode. The dApp's name and URL
    are shown as "stated by the dApp, not verified".
@@ -620,6 +622,27 @@ that sends the same.
   (MetaMask's test dApp sends a password), which is not applied and so is
   refused (Myotis #314); a contract deployment, a transaction with no `to`;
   and `wallet_watchAsset`.
+
+### Overriding a refusal
+
+(Owner ruling, 2026-11-27; `.claude/rules/trust.md`, *Refuse as little as
+possible*.) With Settings → Advanced → *Allow overriding refusals* on, and
+never in simple mode, a request refused by judgement offers, below its
+refusal, *I understand the risk, sign anyway*: a screen with that refusal's
+risks in plain words, and a phrase to type before the unlock. On D4/D5/D6:
+
+- `eth_sign`, with the strongest warning: the hash it signs may stand for
+  anything, a transaction or a permit of any account's funds. Punicus shows
+  the 32 bytes and can say nothing of them.
+- A dApp's Safe transaction that calls the Safe itself, or names a gas limit
+  (the limit is then not applied, and the override says so).
+- A Safe transaction to sign or execute that a Safe refusal holds (a module
+  enabled, a fallback handler not pinned, a delegate call, gas terms, a call
+  of the Safe not decoded exactly, an n-of-n without recovery).
+
+Never overridden: another chain or account than the session's, an account
+with no key here, data too large to show in full, and anything the light
+client cannot verify.
 
 ### Transactions (`eth_sendTransaction`)
 

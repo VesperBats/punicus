@@ -65,7 +65,9 @@ What the app does today:
   decodes and checks it against the chain; an owner may approve on chain
   instead. A transaction that would set the fallback handler to anything but
   the pinned one or none (the zero address removes it), or enable a module,
-  is shown and never signed, approved or executed here.
+  is shown and refused; an advanced setting, off by default, lets you
+  override such a refusal after reading what can go wrong and typing that
+  you accept it.
 - **Gnosis Pay.** A watched Gnosis Pay account (the Safe behind the Gnosis Pay
   card, on Gnosis Chain) is recognised. A key held here that controls its
   Delay module, as a member or as the owner of a member Safe, works through
