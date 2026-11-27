@@ -22,7 +22,7 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 | [Create Safe](#create-safe) | `create-safe/` | 19 |
 | [Display currency](#currency) | `currency/` | 4 |
 | [dApp connection request](#dapp-proposal) | `dapp-proposal/` | 28 |
-| [dApp signing request](#dapp-request) | `dapp-request/` | 40 |
+| [dApp signing request](#dapp-request) | `dapp-request/` | 42 |
 | [dApp transaction](#dapp-transaction) | `dapp-transaction/` | 46 |
 | [Debug](#debug) | `debug/` | 6 |
 | [Add account from the same phrase](#derive-account) | `derive-account/` | 10 |
@@ -389,7 +389,7 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 <a name="dapp-request"></a>
 ## dApp signing request
 
-`dapp-request/`, 40 states: `sign-in`, `sign-in-dark`, `biometrics`, `other-site`, `message`, `hex`, `refused`, `wrong-password`, `signing`, `explaining`, `ended`, `loading`, `approval`, `approval-dark`, `unlimited`, `swap-order`, `not-decoded`, `typed-described`, `typed-described-dark`, `typed-describing`, `typed-contract-changed`, `other-network`, `real-funds`, `real-funds-dark`, `per-app`, `per-app-other-site`, `per-app-linked`, `safe-transfer`, `safe-transfer-dark`, `safe-batch`, `safe-module`, `safe-message`, `session-grant`, `session-grant-dark`, `safe-nft`, `known-test`, `safe-cow-order`, `safe-not-owner`, `not-a-safe`, `safe-gas-terms`
+`dapp-request/`, 42 states: `sign-in`, `sign-in-dark`, `biometrics`, `other-site`, `message`, `hex`, `refused`, `wrong-password`, `signing`, `explaining`, `ended`, `loading`, `approval`, `approval-dark`, `unlimited`, `swap-order`, `not-decoded`, `typed-described`, `typed-described-dark`, `typed-describing`, `typed-contract-changed`, `other-network`, `real-funds`, `real-funds-dark`, `per-app`, `per-app-other-site`, `per-app-linked`, `card-limit`, `card-limit-dark`, `safe-transfer`, `safe-transfer-dark`, `safe-batch`, `safe-module`, `safe-message`, `session-grant`, `session-grant-dark`, `safe-nft`, `known-test`, `safe-cow-order`, `safe-not-owner`, `not-a-safe`, `safe-gas-terms`
 
 <a href="dapp-request/sign-in.png"><img src="dapp-request/sign-in.png" width="206" alt="sign-in"></a>
 <a href="dapp-request/sign-in-dark.png"><img src="dapp-request/sign-in-dark.png" width="206" alt="sign-in-dark"></a>
@@ -418,6 +418,8 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 <a href="dapp-request/per-app.png"><img src="dapp-request/per-app.png" width="206" alt="per-app"></a>
 <a href="dapp-request/per-app-other-site.png"><img src="dapp-request/per-app-other-site.png" width="206" alt="per-app-other-site"></a>
 <a href="dapp-request/per-app-linked.png"><img src="dapp-request/per-app-linked.png" width="206" alt="per-app-linked"></a>
+<a href="dapp-request/card-limit.png"><img src="dapp-request/card-limit.png" width="206" alt="card-limit"></a>
+<a href="dapp-request/card-limit-dark.png"><img src="dapp-request/card-limit-dark.png" width="206" alt="card-limit-dark"></a>
 <a href="dapp-request/safe-transfer.png"><img src="dapp-request/safe-transfer.png" width="206" alt="safe-transfer"></a>
 <a href="dapp-request/safe-transfer-dark.png"><img src="dapp-request/safe-transfer-dark.png" width="206" alt="safe-transfer-dark"></a>
 <a href="dapp-request/safe-batch.png"><img src="dapp-request/safe-batch.png" width="206" alt="safe-batch"></a>
