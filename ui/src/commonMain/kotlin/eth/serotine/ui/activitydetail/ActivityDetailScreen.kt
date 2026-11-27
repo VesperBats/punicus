@@ -85,6 +85,7 @@ fun ActivityDetailRoute(
             onToggleAmounts = viewModel::toggleAmounts,
             syncLine = lightClient.collectAsStateWithLifecycle().value,
             onRetry = retry,
+            onDescribe = viewModel::describe,
         )
         // The strip in Detailed view; in simple mode the same item, drawn as the sync line while it says something.
         InterfaceMode.DETAILED -> ActivityDetailScreen(
@@ -97,6 +98,7 @@ fun ActivityDetailRoute(
             modifier = modifier,
             onToggleAmounts = viewModel::toggleAmounts,
             onRetry = retry,
+            onDescribe = viewModel::describe,
         )
     }
 }
@@ -125,6 +127,8 @@ fun ActivityDetailScreen(
     details: List<DetailField> = emptyList(),
     syncLine: LightClientItem? = null,
     onRetry: () -> Unit = {},
+    /** Describe: reads and describes the transaction's call (docs/clear-signing.md, *Past transactions*). */
+    onDescribe: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
@@ -149,7 +153,7 @@ fun ActivityDetailScreen(
         },
     ) { padding ->
         UnderLightClientStripIfAny(lightClient, Modifier.padding(padding), syncLine) {
-            DetailContent(state, onCopy, onStatus, onAddToken, details, onRetry)
+            DetailContent(state, onCopy, onStatus, onAddToken, details, onRetry, onDescribe)
         }
     }
 }
@@ -163,6 +167,7 @@ private fun BoxScope.DetailContent(
     onAddToken: (String) -> Unit,
     details: List<DetailField>,
     onRetry: () -> Unit,
+    onDescribe: () -> Unit,
 ) {
     when (state) {
         is ActivityDetailUiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -207,6 +212,7 @@ private fun BoxScope.DetailContent(
             if (details.isNotEmpty()) {
                 HiddenDetails(ACTIVITY_DETAIL_DETAILS_TAG) { details.forEach { DetailLine(it, onCopy) } }
             }
+            state.describe?.let { PastDescribe(it, onDescribe) }
         }
     }
 }
@@ -247,6 +253,44 @@ private fun DetailLine(field: DetailField, onCopy: (String) -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
                 )
+            }
+        }
+    }
+}
+
+/** Test tag of Describe, for UI tests. */
+const val ACTIVITY_DETAIL_DESCRIBE_TAG = "activity-detail-describe"
+
+/**
+ * Describe and what it found (docs/clear-signing.md, *Past transactions*): before the tap, the button and what it
+ * reads and downloads; then the call as Punicus reads it or as its description says, with what that rests on, or
+ * why it could not be read.
+ */
+@Composable
+private fun PastDescribe(section: PastDescribeSection, onDescribe: () -> Unit) {
+    HorizontalDivider()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("What it did, described", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        when {
+            section.working -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                Text("Reading its call and checking the contract's code…", style = MaterialTheme.typography.bodyMedium)
+            }
+            !section.done -> {
+                Text(section.offer, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(onClick = onDescribe, modifier = Modifier.testTag(ACTIVITY_DETAIL_DESCRIBE_TAG)) {
+                    Text("Describe this transaction")
+                }
+            }
+            else -> {
+                section.failed?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                section.headline?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                section.safeAction?.let { eth.serotine.ui.components.SafeTxActionCard(it) }
+                section.described?.let { eth.serotine.ui.components.ClearSignedDescription(it) }
+                section.notes.forEach {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = onDescribe) { Text("Describe again") }
             }
         }
     }

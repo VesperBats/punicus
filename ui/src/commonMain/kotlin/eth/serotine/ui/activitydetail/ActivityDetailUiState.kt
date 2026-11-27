@@ -39,6 +39,11 @@ sealed interface ActivityDetailUiState {
         val opensStatus: String? = null,
         val simpleStatus: String? = null,
         val amountsHidden: Boolean = false,
+        /**
+         * Describing its call on the user's tap (docs/clear-signing.md, *Past transactions*): offered where there is
+         * a transaction to read; null where there is none.
+         */
+        val describe: PastDescribeSection? = null,
     ) : ActivityDetailUiState
 
     /**
@@ -81,3 +86,21 @@ enum class DetailKind {
     /** A block number: drawn as [TEXT], and kept behind *Details* in simple mode (docs/simple-ui.md). */
     BLOCK,
 }
+
+/**
+ * Describing a past transaction's call on the user's tap (owner's decisions, 2026-11-27; docs/clear-signing.md,
+ * *Past transactions*), display-ready: before the tap, what it reads and how much it downloads ([offer]); while it
+ * reads, [working]; then what it found: [headline] (what the call does as Punicus reads it itself, or what a
+ * description says), the Safe transaction an execution ran ([safeAction]), the description ([described]), and the
+ * [notes] that say what the description rests on; or why it could not be read ([failed]).
+ */
+data class PastDescribeSection(
+    val offer: String,
+    val working: Boolean = false,
+    val done: Boolean = false,
+    val headline: String? = null,
+    val safeAction: eth.serotine.ui.components.SafeTxActionItem? = null,
+    val described: eth.serotine.ui.components.ClearSignedSection? = null,
+    val notes: List<String> = emptyList(),
+    val failed: String? = null,
+)

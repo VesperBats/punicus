@@ -273,6 +273,76 @@ private fun ActivityDetailIndexTryAgainPreview() = ActivityDetailPreview(
     ),
 )
 
+// Describe (docs/clear-signing.md, *Past transactions*): an Aave supply on Gnosis Chain, before and after the tap.
+private const val AAVE_POOL = "0xb50201558B00496A145fE76f7424749556E326D8"
+
+private val describeOffer = sent.copy(
+    headline = "Sent 0 xDAI",
+    fields = listOf(
+        DetailField("From", ALICE, DetailKind.ADDRESS, "Alice"),
+        DetailField("To", AAVE_POOL, DetailKind.ADDRESS),
+        DetailField("Transaction hash", "0x" + "3".repeat(64), DetailKind.HASH),
+        DetailField("Block", "41,203,117", DetailKind.BLOCK),
+    ),
+    opensStatus = null,
+    describe = PastDescribeSection(
+        "Downloads block 41,203,117's transactions to read its call, usually about 50 KB, at most about 1 MB, " +
+            "verified against the block's header.",
+    ),
+)
+
+private val describeWorking = describeOffer.copy(describe = describeOffer.describe!!.copy(working = true))
+
+private val describeDone = describeOffer.copy(
+    describe = describeOffer.describe!!.copy(
+        done = true,
+        described = eth.serotine.ui.components.ClearSignedSection(
+            intent = "Supply 25 USDC",
+            describedBy = "Described by Aave DAO, ${eth.serotine.ui.components.ClearSignedText.DESCRIBED_BY}",
+            rows = listOf(
+                eth.serotine.ui.components.ClearSignedRow(0, "Amount to supply", "25 USDC", "25000000", null),
+                eth.serotine.ui.components.ClearSignedRow(0, "Collateral recipient", "Alice", ALICE, null),
+            ),
+            otherParameters = listOf(eth.serotine.ui.components.ClearSignedParameter("referralCode", "0")),
+        ),
+        notes = listOf(
+            "Described now, after the fact: the description is the contract's built-in one, checked against the " +
+                "contract's code as it is today.",
+            "This contract can be upgraded: when the transaction ran, its code may have been other than the code " +
+                "checked now, and the description may not fit what ran.",
+            "Its call was read from its block, verified by the light client against the block's header.",
+        ),
+    ),
+)
+
+private val describeFailed = describeOffer.copy(
+    describe = describeOffer.describe!!.copy(
+        done = true,
+        failed = "Its block is not served right now: no peer gave it, or the light client has not reached it. Old " +
+            "blocks may no longer be kept by peers.",
+    ),
+)
+
+@Preview
+@Composable
+private fun ActivityDetailDescribeOfferPreview() = ActivityDetailPreview(describeOffer)
+
+@Preview
+@Composable
+private fun ActivityDetailDescribeWorkingPreview() = ActivityDetailPreview(describeWorking)
+
+@Preview
+@Composable
+private fun ActivityDetailDescribedPreview() = ActivityDetailPreview(describeDone)
+
+@Preview
+@Composable
+private fun ActivityDetailDescribedDarkPreview() = ActivityDetailPreview(describeDone, darkTheme = true)
+
+@Preview
+@Composable
+private fun ActivityDetailDescribeFailedPreview() = ActivityDetailPreview(describeFailed)
+
 /** Every preview above, which ActivityDetailScreenPreviewsTest renders: a new preview goes in here too. */
 internal val activityDetailScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("sent") { ActivityDetailSentPreview() },
@@ -290,4 +360,9 @@ internal val activityDetailScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("index-row-dark") { ActivityDetailIndexRowDarkPreview() },
     ScreenPreview("index-row-refused") { ActivityDetailIndexRefusedPreview() },
     ScreenPreview("index-row-try-again") { ActivityDetailIndexTryAgainPreview() },
+    ScreenPreview("describe-offer") { ActivityDetailDescribeOfferPreview() },
+    ScreenPreview("describe-working") { ActivityDetailDescribeWorkingPreview() },
+    ScreenPreview("described") { ActivityDetailDescribedPreview() },
+    ScreenPreview("described-dark") { ActivityDetailDescribedDarkPreview() },
+    ScreenPreview("describe-failed") { ActivityDetailDescribeFailedPreview() },
 )

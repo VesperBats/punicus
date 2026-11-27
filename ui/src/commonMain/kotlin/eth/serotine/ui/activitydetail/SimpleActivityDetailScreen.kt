@@ -22,6 +22,7 @@ fun SimpleActivityDetailScreen(
     onToggleAmounts: () -> Unit = {},
     syncLine: LightClientItem? = null,
     onRetry: () -> Unit = {},
+    onDescribe: () -> Unit = {},
 ) {
     val shown = state as? ActivityDetailUiState.Shown
     ActivityDetailScreen(
@@ -39,5 +40,6 @@ fun SimpleActivityDetailScreen(
         details = shown?.fields.orEmpty().filter { it.kind == DetailKind.BLOCK },
         syncLine = syncLine,
         onRetry = onRetry,
+        onDescribe = onDescribe,
     )
 }

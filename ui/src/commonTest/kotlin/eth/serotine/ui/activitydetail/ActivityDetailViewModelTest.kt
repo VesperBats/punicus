@@ -121,6 +121,7 @@ class ActivityDetailViewModelTest {
         key: ActivityKey,
         address: Address = alice.address,
         check: CheckAddressIndexEntry? = null,
+        describe: eth.serotine.domain.usecase.DescribePastTransaction? = null,
     ): ActivityDetailViewModel {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val viewModel = ActivityDetailViewModel(
@@ -135,6 +136,7 @@ class ActivityDetailViewModelTest {
             ObserveAmountsHidden(amountsHidden),
             ToggleAmountsHidden(amountsHidden),
             check,
+            describe,
         ) { "at $it" }
         backgroundScope.launch { viewModel.uiState.collect {} }
         runCurrent()
@@ -310,6 +312,47 @@ class ActivityDetailViewModelTest {
         val familiar = assertIs<ActivityDetailUiState.Shown>(viewModel(ActivityKey(tx, 3)).uiState.value)
         assertEquals(ActivityState.DONE, familiar.state, "once sent to, Bob is familiar")
         assertNull(familiar.note)
+    }
+
+    @Test
+    fun describeReadsTheTransactionsBlockOnTheTapAndSaysWhatItDid() = runTest {
+        indexed(alice.address)
+        val tx = "0x" + "e1".repeat(32)
+        index.logs = listOf(tokenLog(usdc.address, bob, alice.address, word("2625a00"), tx))
+        val read = mutableListOf<Long>()
+        val blocks = object : eth.serotine.domain.repository.BlockTransactions {
+            override suspend fun head(network: Network) = eth.serotine.domain.repository.HeadReading.At(9_500_000)
+            override suspend fun transactions(network: Network, number: Long): eth.serotine.domain.repository.BlockReading {
+                read += number
+                val data = eth.serotine.domain.model.Erc20.transferData(alice.address, eth.serotine.domain.model.UInt256.of(40_000_000))
+                return eth.serotine.domain.repository.BlockReading.Read(
+                    listOf(
+                        eth.serotine.domain.repository.ChainTransaction(
+                            tx, bob, usdc.address, eth.serotine.domain.model.UInt256.ZERO,
+                            "0x" + data.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') },
+                        ),
+                    ),
+                )
+            }
+        }
+        val catalog = object : eth.serotine.domain.repository.ClearSigningCatalog {
+            override fun deployment(network: Network, address: Address) = null
+        }
+        val describe = eth.serotine.domain.usecase.DescribePastTransaction(
+            history, blocks, eth.serotine.ui.dapptransaction.describing(ListCatalog(usdc)), catalog,
+        )
+        val vm = viewModel(ActivityKey(tx, 3), describe = describe)
+        val offered = assertIs<ActivityDetailUiState.Shown>(vm.uiState.value).describe!!
+        assertTrue(offered.offer.startsWith("Downloads block 9,402,000's transactions"), offered.offer)
+        assertTrue(read.isEmpty(), "nothing is read before the tap")
+
+        vm.describe()
+        runCurrent()
+        val done = assertIs<ActivityDetailUiState.Shown>(vm.uiState.value).describe!!
+        assertEquals(listOf(9_402_000L), read)
+        assertTrue(done.done)
+        assertTrue(done.headline.orEmpty().startsWith("A transfer of"), done.headline)
+        assertTrue(done.notes.last().startsWith("Its call was read from its block"))
     }
 
     @Test

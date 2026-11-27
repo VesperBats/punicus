@@ -1498,6 +1498,9 @@ Screens 22 to 24 are the swap screens (docs/swaps.md).
     nonce, when a peer took it (an event: when its block was produced, where
     the engine reported it) and its block. Read from what 25 is read from,
     so it says what the row says.
+    Below them, *Describe this transaction* (owner's decisions, 2026-11-27;
+    docs/clear-signing.md, *Past transactions*): on the tap only, its call
+    read verified and described by the built-in descriptions, after the fact.
     - A transaction sent from here: From, its other side by kind (To, the
       token contract and the amount; the spender and the allowance; the
       router and both tokens of a swap; the Safe, its nonce, the Safe

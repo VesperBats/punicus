@@ -589,6 +589,34 @@ rare and meant (docs/balance-reconciliation.md, D3).
   answer, a contract that calls with much data again and again), or one not
   read exactly, is no verified answer: the screen says none could be had.
 
+## Past transactions, described on a tap
+
+(Owner's decisions, 2026-11-27, in the session that built it: a button, not by
+default; an upgradeable contract described with a caveat; no wait for an
+unmetered connection, since the screen says how much it downloads.)
+
+- **Only on the user's tap.** An Activity row's detail (docs/wallet-ux.md,
+  screen 26) offers *Describe this transaction* wherever it names a
+  transaction. Nothing is read, described or kept before the tap, and nothing
+  after it outlives the screen.
+- **Its call is read verified.** A transaction this device sent is read from
+  its own record of the signed bytes: nothing is downloaded. Any other is read
+  from its block's transactions (`BlockTransactions`), verified against the
+  block's header; the button says beforehand how much that usually is (about
+  150 KB on Ethereum, 50 KB on Gnosis Chain, 100 KB on Sepolia, at most about
+  2 MB). It does not wait for an unmetered connection. A block no peer serves
+  any more says so.
+- **Described as a call to sign would be** (A3, A4): the built-in
+  descriptions, the hand-written decoders first, a Safe's `execTransaction`
+  as what the Safe ran. The contract's code is checked as it is now: the
+  result says it is described after the fact, against today's code.
+- **An upgradeable contract** (a pinned proxy) is still described, with a
+  line saying its code when the transaction ran may have been other than the
+  code checked now.
+- Not done yet: the description is not held against the transaction's
+  verified logs, as a trace is on D6 and screen 17; the row's own verified
+  movements are shown above it.
+
 ## Later phases (open)
 
 - **C. Verified ABIs for the long tail.** A build job runs lib-sourcify over a

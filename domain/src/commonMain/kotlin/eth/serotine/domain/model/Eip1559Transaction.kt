@@ -124,5 +124,24 @@ class Eip1559Transaction(
          * answers with, and what a block explorer finds the transaction by.
          */
         fun hashOf(raw: ByteArray): String = "0x" + keccak256(raw).toHex()
+
+        /**
+         * The recipient, value and call data of a signed EIP-1559 transaction ([raw]: `0x02` and its RLP list), as
+         * this wallet signs one; null for anything else, a contract creation (no recipient) among them.
+         */
+        fun callOf(raw: ByteArray): TransactionCall? {
+            if (raw.isEmpty() || raw[0] != TYPE) return null
+            val fields = (Rlp.decode(raw.copyOfRange(1, raw.size)) as? Rlp.Item.Items)?.items ?: return null
+            if (fields.size != 12) return null
+            fun bytes(i: Int) = (fields[i] as? Rlp.Item.Bytes)?.bytes
+            val to = bytes(5)?.takeIf { it.size == 20 } ?: return null
+            val value = bytes(6)?.takeIf { it.size <= 32 } ?: return null
+            val data = bytes(7) ?: return null
+            return TransactionCall(
+                Address.of("0x" + to.toHex()),
+                UInt256.fromBigEndian(ByteArray(32 - value.size) + value),
+                data,
+            )
+        }
     }
 }

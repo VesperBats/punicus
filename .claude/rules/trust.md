@@ -439,6 +439,13 @@ docs/clear-signing.md, *What a clear-signed line proves*.)
     SwapRouter02's swaps, Safe's own methods), its answer stands, "not
     decoded" included.
 
+- **A past transaction is described only on the user's tap** (owner's
+  decisions, 2026-11-27; docs/clear-signing.md, *Past transactions*): its call
+  read verified (this device's record, or its block against the block's
+  header), the descriptions bound to the contract's code as it is now and said
+  to be; an upgradeable contract's description carries that its code may
+  have been other then. Nothing is kept.
+
 ## A verified trace: what the call does at the head
 
 (Owner's decisions, 2026-11-26, on #240: questions 6 and 7;

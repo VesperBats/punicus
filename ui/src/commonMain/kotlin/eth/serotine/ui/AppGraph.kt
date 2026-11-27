@@ -79,6 +79,7 @@ import eth.serotine.domain.repository.UniswapV3Chain
 import eth.serotine.domain.repository.ClearSigningCatalog
 import eth.serotine.domain.repository.ContractCodes
 import eth.serotine.domain.usecase.DescribeClearSigning
+import eth.serotine.domain.usecase.DescribePastTransaction
 import eth.serotine.domain.repository.UserTokens
 import eth.serotine.domain.repository.WaitingSwaps
 import eth.serotine.domain.repository.WalletHandoff
@@ -1126,6 +1127,9 @@ class AppGraph(
                     ?.let { CheckAddressIndexEntry(history, setting, it, addressIndexArchive) }
             }
         },
+        describePastTransaction = DescribePastTransaction(
+            transactionHistory, blockTransactions, describeClearSigning(), clearSigningCatalog,
+        ),
     )
 
     /** Create Safe (docs/wallet-ux.md, screens 13 to 15). */
