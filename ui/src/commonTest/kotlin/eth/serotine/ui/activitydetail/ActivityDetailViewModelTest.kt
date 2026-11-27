@@ -322,6 +322,7 @@ class ActivityDetailViewModelTest {
         val read = mutableListOf<Long>()
         val blocks = object : eth.serotine.domain.repository.BlockTransactions {
             override suspend fun head(network: Network) = eth.serotine.domain.repository.HeadReading.At(9_500_000)
+            override fun reach(network: Network) = eth.serotine.domain.repository.BlockReach.Deep
             override suspend fun transactions(network: Network, number: Long): eth.serotine.domain.repository.BlockReading {
                 read += number
                 val data = eth.serotine.domain.model.Erc20.transferData(alice.address, eth.serotine.domain.model.UInt256.of(40_000_000))
@@ -340,19 +341,29 @@ class ActivityDetailViewModelTest {
         }
         val describe = eth.serotine.domain.usecase.DescribePastTransaction(
             history, blocks, eth.serotine.ui.dapptransaction.describing(ListCatalog(usdc)), catalog,
+            eth.serotine.ui.MemoryNetworkSettings(setOf(Network.SEPOLIA)),
         )
         val vm = viewModel(ActivityKey(tx, 3), describe = describe)
-        val offered = assertIs<ActivityDetailUiState.Shown>(vm.uiState.value).describe!!
+        val offered = assertIs<PastDescribeSection.Offer>(assertIs<ActivityDetailUiState.Shown>(vm.uiState.value).describe)
         assertTrue(offered.offer.startsWith("Downloads block 9,402,000's transactions"), offered.offer)
+        assertTrue(offered.offer.contains("for a block this old"), "below the window: the walk down is said")
+        assertFalse(offered.simpleOffer.contains("9,402,000"), "no block number in simple mode")
         assertTrue(read.isEmpty(), "nothing is read before the tap")
 
         vm.describe()
         runCurrent()
-        val done = assertIs<ActivityDetailUiState.Shown>(vm.uiState.value).describe!!
+        val done = assertIs<PastDescribeSection.Described>(assertIs<ActivityDetailUiState.Shown>(vm.uiState.value).describe)
         assertEquals(listOf(9_402_000L), read)
-        assertTrue(done.done)
-        assertTrue(done.headline.orEmpty().startsWith("A transfer of"), done.headline)
+        assertEquals("${Eip55.format(bob)} sent 40000000 units of the token at ${Eip55.format(usdc.address)} to ${Eip55.format(alice.address)}.", done.headline)
         assertTrue(done.notes.last().startsWith("Its call was read from its block"))
+        // Bob sent it, choosing every address in it: none is selectable (#324).
+        assertFalse(done.selectable)
+
+        // While amounts are hidden, nothing of what it moved is said.
+        vm.toggleAmounts()
+        runCurrent()
+        val hidden = assertIs<PastDescribeSection.Described>(assertIs<ActivityDetailUiState.Shown>(vm.uiState.value).describe)
+        assertEquals("Amounts are hidden: open the eye to see what it did.", hidden.headline)
     }
 
     @Test

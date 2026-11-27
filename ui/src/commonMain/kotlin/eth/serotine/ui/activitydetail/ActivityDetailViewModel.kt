@@ -38,9 +38,15 @@ import eth.serotine.domain.usecase.ToggleAmountsHidden
 import eth.serotine.domain.usecase.DescribePastTransaction
 import eth.serotine.domain.usecase.PastCallUnavailable
 import eth.serotine.domain.usecase.PastDescription
+import eth.serotine.domain.usecase.PastAvailability
+import eth.serotine.domain.usecase.PastNotOffered
+import eth.serotine.ui.components.asPast
+import eth.serotine.ui.components.pastMeaningLine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import eth.serotine.domain.model.ClearSignResult
 import eth.serotine.ui.components.ClearSignedText
-import eth.serotine.ui.dapptransaction.DappTransactionViewModel
 import eth.serotine.domain.usecase.TokenTransferEvent
 import eth.serotine.ui.activity.ActivityKey
 import eth.serotine.ui.activity.ActivityRow
@@ -143,7 +149,7 @@ class ActivityDetailViewModel(
      * event; the history beside an event too, for the request of a Safe transaction it may be of.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val shown: Flow<ActivityDetailUiState> = observeAmountsHidden().let { hiddenFlow ->
+    private val shown: Flow<Pair<ActivityDetailUiState, Map<Address, KnownToken>?>> = observeAmountsHidden().let { hiddenFlow ->
         val indexed = key.index
         if (indexed != null) {
             val entry = AddressIndexEntry(indexed.block, indexed.slot, indexed.roles)
@@ -159,7 +165,7 @@ class ActivityDetailViewModel(
             }
             combine(checked, sources.parties, combine(sources.tokens, hiddenFlow, ::Pair)) { check, parties, both ->
                 val (tokens, hidden) = both
-                renderIndexed(check, parties, tokens, rowsFor(hidden, tokens, emptyList())).withHidden(hidden)
+                renderIndexed(check, parties, tokens, rowsFor(hidden, tokens, emptyList())).withHidden(hidden) to tokens
             }
         } else if (key.logIndex == null) {
             combine(
@@ -168,8 +174,7 @@ class ActivityDetailViewModel(
                 combine(sources.tokens, hiddenFlow, ::Pair),
             ) { history, parties, (tokens, hidden) ->
                 val entries = (history as? HistoryList.Loaded)?.entries.orEmpty()
-                lastTokens = tokens
-                renderSent(history, parties, rowsFor(hidden, tokens, entries)).withHidden(hidden)
+                renderSent(history, parties, rowsFor(hidden, tokens, entries)).withHidden(hidden) to tokens
             }
         } else {
             combine(
@@ -180,7 +185,7 @@ class ActivityDetailViewModel(
                 observeAccountHistory(account),
             ) { parties, safe, transfers, (tokens, hidden), history ->
                 val entries = (history as? HistoryList.Loaded)?.entries.orEmpty()
-                renderLogged(parties, safe, transfers, tokens, rowsFor(hidden, tokens, entries)).withHidden(hidden)
+                renderLogged(parties, safe, transfers, tokens, rowsFor(hidden, tokens, entries)).withHidden(hidden) to tokens
             }
         }
     }
@@ -205,72 +210,111 @@ class ActivityDetailViewModel(
     private fun ActivityDetailUiState.withHidden(hidden: Boolean): ActivityDetailUiState =
         if (this is ActivityDetailUiState.Shown) copy(amountsHidden = hidden) else this
 
-    /** The transaction the row is of, as its render found it: its hash, its block, whether this device sent it. */
-    private data class Target(val hash: String, val block: Long?, val recorded: Boolean)
-
-    /** What a tap on Describe came to, for the transaction of [Target.hash]; null before the tap. */
-    private data class Described(val hash: String, val working: Boolean, val result: PastDescription?)
-
-    @kotlin.concurrent.Volatile
-    private var target: Target? = null
-
-    @kotlin.concurrent.Volatile
-    private var lastTokens: Map<Address, KnownToken>? = null
+    /** What a tap on Describe came to, for the transaction of [hash]; null before the tap. */
+    private data class Described(val hash: String, val result: PastDescription?)
 
     private val described = MutableStateFlow<Described?>(null)
+
+    /** Whether the row's transaction can be described here, said before the tap; read again when it changes. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val availability: Flow<Pair<DescribeAt, PastAvailability>?> = shown
+        .map { (state, _) -> (state as? ActivityDetailUiState.Shown)?.describeAt }
+        .distinctUntilChanged()
+        .mapLatest { at ->
+            val use = describePastTransaction ?: return@mapLatest null
+            at ?: return@mapLatest null
+            val answer = try {
+                use.availability(network, at.hash, at.block)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                PastAvailability.FromBlock(deep = true)
+            }
+            at to answer
+        }
 
     /** Reads and describes the row's transaction: what Describe does. Nothing is kept beyond this screen. */
     fun describe() {
         val use = describePastTransaction ?: return
-        val at = target ?: return
-        if (described.value?.working == true) return
-        described.value = Described(at.hash, working = true, result = null)
+        val at = (uiState.value as? ActivityDetailUiState.Shown)?.describeAt ?: return
+        val section = (uiState.value as? ActivityDetailUiState.Shown)?.describe
+        if (section is PastDescribeSection.Working || section is PastDescribeSection.NotOffered) return
+        described.value = Described(at.hash, result = null)
         viewModelScope.launch {
             val result = try {
-                use(account, at.hash, at.block)
+                use(network, at.hash, at.block)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
                 PastDescription.NotRead(PastCallUnavailable.Unavailable(eth.serotine.domain.repository.ReadUnavailable.UNPROVEN))
             }
-            described.value = Described(at.hash, working = false, result = result)
+            described.value = Described(at.hash, result)
         }
     }
 
-    /** [state] with Describe's section, for the transaction its render found. */
-    private fun withDescribe(state: ActivityDetailUiState, done: Described?): ActivityDetailUiState {
-        if (state !is ActivityDetailUiState.Shown || describePastTransaction == null) return state
-        val at = target ?: return state
-        val offer = if (at.recorded) {
-            "Reads its call from this device's record of it: nothing is downloaded."
-        } else {
+    /** [state] with Describe's section, for the transaction its render found, as [offered] says it can be. */
+    private fun withDescribe(
+        state: ActivityDetailUiState,
+        tokens: Map<Address, KnownToken>?,
+        offered: Pair<DescribeAt, PastAvailability>?,
+        done: Described?,
+    ): ActivityDetailUiState {
+        if (state !is ActivityDetailUiState.Shown) return state
+        val at = state.describeAt ?: return state
+        val availability = offered?.takeIf { it.first == at }?.second ?: return state
+        val (offer, simpleOffer) = offerLines(at, availability)
+        if (availability is PastAvailability.NotOffered) {
+            return state.copy(describe = PastDescribeSection.NotOffered(offer, simpleOffer, notOfferedText(availability.reason)))
+        }
+        if (done == null || done.hash != at.hash) return state.copy(describe = PastDescribeSection.Offer(offer, simpleOffer))
+        val result = done.result ?: return state.copy(describe = PastDescribeSection.Working(offer, simpleOffer))
+        return state.copy(describe = pastSection(offer, simpleOffer, result, tokens, state.amountsHidden))
+    }
+
+    /** What Describe says it does and downloads, in Detailed view and, with no block number, in simple mode. */
+    private fun offerLines(at: DescribeAt, availability: PastAvailability): Pair<String, String> = when (availability) {
+        PastAvailability.FromRecord -> RECORD_OFFER to RECORD_OFFER
+        is PastAvailability.FromBlock -> {
+            val size = blockSize(network) + if (availability.deep) DEEP_BLOCK else ""
             val block = at.block?.let { "block ${grouped(it)}'s" } ?: "its block's"
-            "Downloads $block transactions to read its call, usually ${blockSize(network)}, verified against the " +
-                "block's header."
+            "Downloads $block transactions to read its call, usually $size, verified against the block's header." to
+                "Downloads its block's transactions to read its call, usually $size, checked on chain."
         }
-        val section = PastDescribeSection(offer)
-        if (done == null || done.hash != at.hash) return state.copy(describe = section)
-        if (done.working) return state.copy(describe = section.copy(working = true))
-        return state.copy(describe = pastSection(section, done.result))
+        is PastAvailability.NotOffered -> NOT_OFFERED to NOT_OFFERED
     }
 
-    private fun pastSection(section: PastDescribeSection, result: PastDescription?): PastDescribeSection {
+    private fun notOfferedText(reason: PastNotOffered): String = when (reason) {
+        PastNotOffered.NetworkOff -> "Its network is off. Turn it on in Settings, under Networks, to describe it."
+        PastNotOffered.NoBlock -> "No block is known to hold it, so its call cannot be read."
+        PastNotOffered.NoBlockReads -> "Punicus on this device cannot read a block's transactions yet, so the call " +
+            "of a transaction it did not send cannot be read here."
+        is PastNotOffered.OutsideWindow -> "Its block is older than the last ${grouped(reason.blocks)} blocks, all " +
+            "this network's light client reads, so its call cannot be read here."
+    }
+
+    private fun pastSection(
+        offer: String,
+        simpleOffer: String,
+        result: PastDescription,
+        tokens: Map<Address, KnownToken>?,
+        hidden: Boolean,
+    ): PastDescribeSection {
         val read = when (result) {
-            null -> return section
-            is PastDescription.NotRead -> return section.copy(done = true, failed = notReadText(result.reason))
+            is PastDescription.NotRead -> return PastDescribeSection.Failed(offer, simpleOffer, notReadText(result.reason))
             is PastDescription.Read -> result
         }
-        val tokens = ActivityRows.decodingTokens(lastTokens)
+        // While amounts are hidden, nothing of what it moved is said: the eye shows it again.
+        if (hidden) {
+            return PastDescribeSection.Described(offer, simpleOffer, headline = HIDDEN_DESCRIPTION)
+        }
         val safeItem = read.safeAction?.let {
-            eth.serotine.ui.components.safeTxActionItem(it, null, tokens, network)
+            eth.serotine.ui.components.safeTxActionItem(it, null, ActivityRows.decodingTokens(tokens), network).asPast()
         }
         val clear = read.result as? ClearSignResult.ClearSigned
         val headline = when {
-            safeItem != null -> "Executed a transaction of the Safe ${Eip55.format(read.safe!!)}: what the Safe ran " +
-                "is below."
-            clear != null -> null
-            else -> DappTransactionViewModel.meaningLine(read.meaning, null, read.call.from)
-                ?: "A call Punicus does not read itself: function 0x${read.call.data.take(4).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }}."
+            safeItem != null || clear == null -> pastMeaningLine(read.meaning, read.call.from, hidden = false)
+                ?: "A call Punicus does not read itself: function 0x${read.call.data.copyOf(4).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }}."
+            else -> null
         }
         val notes = buildList {
             if (clear != null) {
@@ -296,26 +340,40 @@ class ActivityDetailViewModel(
                 },
             )
         }
-        return section.copy(
-            done = true,
+        val described = clear?.let { ClearSignedText.describedSection(it, past = true) }
+        return PastDescribeSection.Described(
+            offer,
+            simpleOffer,
             headline = headline,
-            safeAction = safeItem?.withDescription(read.result.takeIf { read.safeAction is eth.serotine.domain.model.SafeTxAction.ContractCall }, false),
-            described = clear?.takeIf { safeItem == null }?.let(ClearSignedText::describedSection),
+            safeAction = safeItem?.let { item ->
+                if (read.safeAction is eth.serotine.domain.model.SafeTxAction.ContractCall && described != null) {
+                    item.copy(
+                        title = described.intent,
+                        notes = item.notes.filterNot { it == eth.serotine.ui.components.SafeTxActionItem.NOT_DECODED_HERE },
+                        described = described,
+                    )
+                } else {
+                    item
+                }
+            },
+            described = described.takeIf { safeItem == null },
             notes = notes,
+            // A transaction a third party sent chose every address in it: none of them is selectable (#324).
+            selectable = read.call.from == address,
         )
     }
 
     private fun notReadText(reason: PastCallUnavailable): String = when (reason) {
         PastCallUnavailable.NoBlock -> "No block is known to hold this transaction, so its call cannot be read."
         PastCallUnavailable.BlockNotServed -> "Its block is not served right now: no peer gave it, or the light " +
-            "client has not reached it. Old blocks may no longer be kept by peers."
+            "client has not reached it. Try again later."
         PastCallUnavailable.NotInBlock -> "Its block was read and holds no transaction of this hash."
         PastCallUnavailable.Creation -> "It created a contract: there is no call to describe."
         is PastCallUnavailable.Unavailable -> eth.serotine.ui.components.unavailableText(reason.reason)
     }
 
-    val uiState: StateFlow<ActivityDetailUiState> = combine(shown, described) { state, done ->
-        withDescribe(state, done)
+    val uiState: StateFlow<ActivityDetailUiState> = combine(shown, availability, described) { (state, tokens), offered, done ->
+        withDescribe(state, tokens, offered, done)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000, replayExpirationMillis = 0),
@@ -333,9 +391,9 @@ class ActivityDetailViewModel(
             ?: return ActivityDetailUiState.Unavailable(title, NOT_SENT_HERE)
         // Only a call with data has anything to describe: a payment or a token transfer reads as one already.
         val call = eth.serotine.domain.model.Eip1559Transaction.callOf(entry.transfer.signed.raw)
-        target = Target(entry.transfer.hash, entry.outcome.blockNumberOrNull, recorded = true)
-            .takeIf { call != null && call.data.isNotEmpty() }
+        val at = DescribeAt(entry.transfer.hash, entry.outcome.blockNumberOrNull).takeIf { call != null && call.data.isNotEmpty() }
         return shownOf(title, rows.row(entry, names), sentFields(entry, names, rows), opensStatus = entry.transfer.hash)
+            .copy(describeAt = at)
     }
 
     private fun renderLogged(
@@ -350,18 +408,18 @@ class ActivityDetailViewModel(
         if (parties.list !is AccountList.Loaded) return ActivityDetailUiState.Unavailable(title, ACCOUNTS_UNREADABLE)
         // Only an account of the wallet has its logs followed.
         if (transfers == null) return ActivityDetailUiState.Unavailable(title, NOT_IN_WALLET)
-        lastTokens = tokens
         safe.found()?.let {
-            target = Target(it.transactionHash, it.blockNumber, recorded = false)
             return shownOf(title, rows.eventRow(it, parties), safeFields(it, names, rows))
+                .copy(describeAt = DescribeAt(it.transactionHash, it.blockNumber))
         }
         val transfer = transfers.found() ?: return missing(title, listOfNotNull(safe, transfers))
-        target = Target(transfer.transactionHash, transfer.blockNumber, recorded = false)
         // A transfer of nothing is not listed, and not detailed either: it plants a look-alike address.
         if (transfer.transfer.movesNothing()) return ActivityDetailUiState.Unavailable(title, MOVED_NOTHING)
         // Until the tokens are known, what moved cannot be said.
         if (tokens == null) return ActivityDetailUiState.Loading(title)
-        return transferShown(title, transfer, parties, tokens, rows)
+        return transferShown(title, transfer, parties, tokens, rows).let {
+            if (it is ActivityDetailUiState.Shown) it.copy(describeAt = DescribeAt(transfer.transactionHash, transfer.blockNumber)) else it
+        }
     }
 
     /**
@@ -410,8 +468,6 @@ class ActivityDetailViewModel(
             ?: return ActivityDetailUiState.Unavailable(title, MOVED_NOTHING)
         val entry = indexed.entry
         val tx = indexed.transaction
-        lastTokens = tokens
-        target = tx?.let { Target(it.hash, entry.block, recorded = false) }
         // A transaction this account did not send was made by someone else, who chose every address in it: anyone can
         // name the account in one (a topic, a word of its input), from or to a look-alike planted for the user to copy.
         // So no address of its other side gets Copy here (address poisoning protection, #324).
@@ -476,6 +532,7 @@ class ActivityDetailViewModel(
             title,
             row,
             fields,
+            describeAt = tx?.let { DescribeAt(it.hash, entry.block) },
             note = listOfNotNull(
                 claim,
                 SENDER_NOTE.takeIf { row.state == ActivityState.CAUTION },
@@ -491,6 +548,7 @@ class ActivityDetailViewModel(
         Network.GNOSIS -> "about 50 KB, at most about 1 MB"
         Network.SEPOLIA -> "about 100 KB, at most about 2 MB"
     }
+
 
     /** This field with Copy only where [copy] says so. */
     private fun DetailField.withCopy(copy: Boolean): DetailField = if (copy) this else copy(copyable = false)
@@ -519,6 +577,7 @@ class ActivityDetailViewModel(
         note: String? = null,
         addToken: String? = null,
         opensStatus: String? = null,
+        describeAt: DescribeAt? = null,
     ) = ActivityDetailUiState.Shown(
         title = title,
         headline = row.title,
@@ -537,6 +596,7 @@ class ActivityDetailViewModel(
         note = note ?: SENDER_NOTE.takeIf { row.state == ActivityState.CAUTION },
         addToken = addToken,
         opensStatus = opensStatus,
+        describeAt = describeAt,
     )
 
     /** Each party a sent transaction concerns, then what it moved, then where it is on chain. */
@@ -782,6 +842,13 @@ class ActivityDetailViewModel(
     )
 
     private companion object {
+        /** A deep block's extra: the walk of up to 1,024 headers down from the checkpoint table's nearest entry. */
+        const val DEEP_BLOCK = ", and for a block this old up to about 0.6 MB more to verify it"
+        const val RECORD_OFFER = "Reads its call from this device's record of it: no block is downloaded. The " +
+            "contract's code is checked with the light client."
+        const val NOT_OFFERED = "Not available here."
+        const val HIDDEN_DESCRIPTION = "Amounts are hidden: open the eye to see what it did."
+
         const val UNREADABLE = "The history of your transactions cannot be read right now. Punicus keeps trying."
         const val NOT_SENT_HERE = "This transaction is not in this account's history."
         const val ACCOUNTS_UNREADABLE = "The wallet's accounts cannot be read right now."

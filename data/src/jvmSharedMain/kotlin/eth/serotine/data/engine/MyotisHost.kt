@@ -595,7 +595,18 @@ class MyotisHost private constructor(
             transactionInputs = EngineTransactionInputs(network, chain, Dispatchers.IO, kept = keptInputsFile),
             broadcaster = EngineBroadcaster(network, chain, Dispatchers.IO),
             receipts = EngineReceipts(network, chain, Dispatchers.IO, POLL_INTERVAL),
-            blockTransactions = EngineBlockTransactions(network, chain, Dispatchers.IO),
+            // Ethereum (Myotis 0.1.21 on) and Gnosis Chain (0.1.25 on) reach any block through the checkpoint
+            // table; Sepolia only the light client's window (docs/embedding-myotis.md, *History*).
+            blockTransactions = EngineBlockTransactions(
+                network,
+                chain,
+                Dispatchers.IO,
+                if (network == Network.SEPOLIA) {
+                    eth.serotine.domain.repository.BlockReach.Window(eth.serotine.domain.repository.BlockReach.HEADER_WINDOW)
+                } else {
+                    eth.serotine.domain.repository.BlockReach.Deep
+                },
+            ),
             names = EngineNames(network, chain, Dispatchers.IO),
             safeApprovals = VerifiedSafeApprovals(network, chain, Dispatchers.IO),
             delayModules = VerifiedDelayModules(network, chain, Dispatchers.IO, POLL_INTERVAL),

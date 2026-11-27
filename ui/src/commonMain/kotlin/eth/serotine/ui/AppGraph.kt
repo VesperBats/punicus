@@ -1128,7 +1128,7 @@ class AppGraph(
             }
         },
         describePastTransaction = DescribePastTransaction(
-            transactionHistory, blockTransactions, describeClearSigning(), clearSigningCatalog,
+            transactionHistory, blockTransactions, describeClearSigning(), clearSigningCatalog, networkSettings,
         ),
     )
 

@@ -72,10 +72,26 @@ private fun SimpleActivityDetailHiddenPreview() = SimpleActivityDetailPreview(se
 @Composable
 private fun SimpleActivityDetailHiddenDarkPreview() = SimpleActivityDetailPreview(sentHidden, darkTheme = true)
 
+/** Describe offered: its offer names no block in simple mode. */
+private val describeOffer = sent.copy(
+    describe = PastDescribeSection.Offer(
+        "Downloads block 9,412,118's transactions to read its call, usually about 100 KB, at most about 2 MB, " +
+            "verified against the block's header.",
+        "Downloads its block's transactions to read its call, usually about 100 KB, at most about 2 MB, checked on " +
+            "chain.",
+    ),
+    describeAt = DescribeAt("0x" + "1".repeat(64), 9_412_118),
+)
+
+@Preview
+@Composable
+private fun SimpleActivityDetailDescribeOfferPreview() = SimpleActivityDetailPreview(describeOffer)
+
 /** Every preview above, which SimpleActivityDetailScreenPreviewsTest renders: a new preview goes in here too. */
 internal val simpleActivityDetailScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("sent") { SimpleActivityDetailSentPreview() },
     ScreenPreview("sent-dark") { SimpleActivityDetailSentDarkPreview() },
     ScreenPreview("hidden") { SimpleActivityDetailHiddenPreview() },
     ScreenPreview("hidden-dark") { SimpleActivityDetailHiddenDarkPreview() },
+    ScreenPreview("describe-offer") { SimpleActivityDetailDescribeOfferPreview() },
 )

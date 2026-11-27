@@ -24,6 +24,35 @@ interface BlockTransactions {
      * [BlockReading.NotYet] for a block there is no verified answer about yet.
      */
     suspend fun transactions(network: Network, number: Long): BlockReading
+
+    /**
+     * How far back [network]'s blocks can be read here ([BlockReach]): what an offer to read an older block says
+     * before it is made. By default the light client's own window of [BlockReach.HEADER_WINDOW] blocks.
+     */
+    fun reach(network: Network): BlockReach = BlockReach.Window(BlockReach.HEADER_WINDOW)
+}
+
+/** How far back a network's blocks can be read verified on this device ([BlockTransactions.reach]). */
+sealed interface BlockReach {
+    /** None: this device's engine reads no block by number (Myotis's iOS module, for now). */
+    data object None : BlockReach
+
+    /** The last [blocks] blocks below the readable head: the light client's own window. */
+    data class Window(val blocks: Long) : BlockReach
+
+    /**
+     * Any block: deeper than the window through the engine's bundled checkpoint table (Myotis's rule D1), with a walk
+     * of up to [CHECKPOINT_SPAN] headers down from the nearest checkpoint, a heavier read.
+     */
+    data object Deep : BlockReach
+
+    companion object {
+        /** The light client's header window, as `getBlockByNumber` serves it from the head. */
+        const val HEADER_WINDOW = 512L
+
+        /** Every this many blocks the checkpoint table holds a hash: the most headers walked to reach a deep block. */
+        const val CHECKPOINT_SPAN = 1024L
+    }
 }
 
 /** What [BlockTransactions.head] answers. */

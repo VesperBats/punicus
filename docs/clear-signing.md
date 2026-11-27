@@ -600,19 +600,30 @@ unmetered connection, since the screen says how much it downloads.)
   transaction. Nothing is read, described or kept before the tap, and nothing
   after it outlives the screen.
 - **Its call is read verified.** A transaction this device sent is read from
-  its own record of the signed bytes: nothing is downloaded. Any other is read
-  from its block's transactions (`BlockTransactions`), verified against the
-  block's header; the button says beforehand how much that usually is (about
-  150 KB on Ethereum, 50 KB on Gnosis Chain, 100 KB on Sepolia, at most about
-  2 MB). It does not wait for an unmetered connection. A block no peer serves
-  any more says so.
+  its own record of the signed bytes: no block is downloaded, only the
+  contract's code is checked. Any other is read from its block's transactions
+  (`BlockTransactions`), verified against the block's header; the button says
+  beforehand how much that usually is (about 150 KB on Ethereum, at most about
+  2 MB; about 50 KB on Gnosis Chain, at most about 1 MB; about 100 KB on
+  Sepolia, at most about 2 MB), and for a block below the light client's
+  window up to about 0.6 MB more, for the walk of up to 1,024 headers down
+  from the checkpoint table that verifies it. It does not wait for an
+  unmetered connection. A block no peer serves now says so.
+- **Greyed out where it cannot work, the tap saying why** (owner ruling,
+  2026-10-18, #55): a network that is off; a device whose engine reads no
+  block by number (iOS, for now); a block older than the last 512 on Sepolia,
+  whose light client reads no deeper; a transaction no block is known for.
 - **Described as a call to sign would be** (A3, A4): the built-in
   descriptions, the hand-written decoders first, a Safe's `execTransaction`
   as what the Safe ran. The contract's code is checked as it is now: the
   result says it is described after the fact, against today's code.
-- **An upgradeable contract** (a pinned proxy) is still described, with a
-  line saying its code when the transaction ran may have been other than the
-  code checked now.
+- **An upgradeable contract** (a pinned proxy), the description's or a
+  nested call's, is still described, with a line saying its code when the
+  transaction ran may have been other than the code checked now.
+- **Said of what ran**, in the past tense, naming its sender: a third party
+  may have sent it. Its addresses cannot be selected when a third party sent
+  it (address poisoning protection, #324), and while amounts are hidden
+  nothing of what it moved is said.
 - Not done yet: the description is not held against the transaction's
   verified logs, as a trace is on D6 and screen 17; the row's own verified
   movements are shown above it.

@@ -29,6 +29,8 @@ fun SimpleActivityDetailScreen(
         state = shown?.copy(
             status = shown.simpleStatus ?: shown.status,
             fields = shown.fields.filterNot { it.kind == DetailKind.BLOCK },
+            // No block number in simple mode: the offer in its own words.
+            describe = shown.describe?.simple(),
         ) ?: state,
         lightClient = null,
         onBack = onBack,
@@ -42,4 +44,13 @@ fun SimpleActivityDetailScreen(
         onRetry = onRetry,
         onDescribe = onDescribe,
     )
+}
+
+/** [this] with its offer in simple mode's words, which name no block. */
+private fun PastDescribeSection.simple(): PastDescribeSection = when (this) {
+    is PastDescribeSection.Offer -> copy(offer = simpleOffer)
+    is PastDescribeSection.NotOffered -> copy(offer = simpleOffer)
+    is PastDescribeSection.Working -> copy(offer = simpleOffer)
+    is PastDescribeSection.Described -> copy(offer = simpleOffer)
+    is PastDescribeSection.Failed -> copy(offer = simpleOffer)
 }

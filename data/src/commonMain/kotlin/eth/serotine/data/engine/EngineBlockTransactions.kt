@@ -1,6 +1,7 @@
 package eth.serotine.data.engine
 
 import eth.serotine.domain.model.Network
+import eth.serotine.domain.repository.BlockReach
 import eth.serotine.domain.repository.BlockReading
 import eth.serotine.domain.repository.BlockTransactions
 import eth.serotine.domain.repository.HeadReading
@@ -20,7 +21,11 @@ class EngineBlockTransactions internal constructor(
     private val served: Network,
     private val chain: TransactingChain?,
     private val dispatcher: CoroutineDispatcher,
+    /** How far back this engine reads [served]'s blocks: its host's to say (docs/embedding-myotis.md, *History*). */
+    private val reach: BlockReach = BlockReach.Window(BlockReach.HEADER_WINDOW),
 ) : BlockTransactions {
+
+    override fun reach(network: Network): BlockReach = if (network == served) reach else BlockReach.None
 
     override suspend fun head(network: Network): HeadReading {
         if (network != served) return HeadReading.Unavailable(ReadUnavailable.NO_ENGINE)

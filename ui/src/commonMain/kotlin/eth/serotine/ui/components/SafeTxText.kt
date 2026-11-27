@@ -312,11 +312,14 @@ internal fun safeTxActionItem(
         title = "Delegate call",
         addresses = listOf(ActionAddress("Code run as the Safe", Eip55.format(action.to))),
         notes = listOf(callData(action.selector, action.dataSize)),
-        warning = "A delegate call: the Safe would run this contract's code as itself, with its storage, " +
-            "owners and funds, and the code can change any of them. Punicus shows it and decodes it no " +
-            "further, and does not sign, approve or execute it.",
+        warning = DELEGATE_CALL_WARNING,
     )
 }
+
+/** What a delegate call is, said before anyone signs one. */
+internal const val DELEGATE_CALL_WARNING = "A delegate call: the Safe would run this contract's code as itself, with its storage, " +
+            "owners and funds, and the code can change any of them. Punicus shows it and decodes it no " +
+            "further, and does not sign, approve or execute it."
 
 /** What a CoW pre-signature lets happen, said before it is signed. */
 internal const val PRE_SIGNATURE_WARNING = "Executing this lets CoW Protocol fill an order whose amounts Punicus cannot " +

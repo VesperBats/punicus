@@ -189,6 +189,9 @@ class NetworkRoutedPorts(private val byNetwork: Map<Network, ChainPorts>) {
         override suspend fun head(network: Network): HeadReading =
             of(network)?.blockTransactions?.head(network) ?: HeadReading.Unavailable(ReadUnavailable.NO_ENGINE)
 
+        override fun reach(network: Network): eth.serotine.domain.repository.BlockReach =
+            of(network)?.blockTransactions?.reach(network) ?: eth.serotine.domain.repository.BlockReach.None
+
         override suspend fun transactions(network: Network, number: Long): BlockReading =
             of(network)?.blockTransactions?.transactions(network, number)
                 ?: BlockReading.Unavailable(ReadUnavailable.NO_ENGINE)

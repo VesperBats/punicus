@@ -285,20 +285,25 @@ private val describeOffer = sent.copy(
         DetailField("Block", "41,203,117", DetailKind.BLOCK),
     ),
     opensStatus = null,
-    describe = PastDescribeSection(
+    describe = PastDescribeSection.Offer(
         "Downloads block 41,203,117's transactions to read its call, usually about 50 KB, at most about 1 MB, " +
             "verified against the block's header.",
+        "Downloads its block's transactions to read its call, usually about 50 KB, at most about 1 MB, checked on chain.",
     ),
+    describeAt = DescribeAt("0x" + "3".repeat(64), 41_203_117),
 )
 
-private val describeWorking = describeOffer.copy(describe = describeOffer.describe!!.copy(working = true))
+private val offered = describeOffer.describe as PastDescribeSection.Offer
+
+private val describeWorking = describeOffer.copy(describe = PastDescribeSection.Working(offered.offer, offered.simpleOffer))
 
 private val describeDone = describeOffer.copy(
-    describe = describeOffer.describe!!.copy(
-        done = true,
+    describe = PastDescribeSection.Described(
+        offered.offer,
+        offered.simpleOffer,
         described = eth.serotine.ui.components.ClearSignedSection(
             intent = "Supply 25 USDC",
-            describedBy = "Described by Aave DAO, ${eth.serotine.ui.components.ClearSignedText.DESCRIBED_BY}",
+            describedBy = "Described by Aave DAO, ${eth.serotine.ui.components.ClearSignedText.DESCRIBED_BY_PAST}",
             rows = listOf(
                 eth.serotine.ui.components.ClearSignedRow(0, "Amount to supply", "25 USDC", "25000000", null),
                 eth.serotine.ui.components.ClearSignedRow(0, "Collateral recipient", "Alice", ALICE, null),
@@ -316,10 +321,10 @@ private val describeDone = describeOffer.copy(
 )
 
 private val describeFailed = describeOffer.copy(
-    describe = describeOffer.describe!!.copy(
-        done = true,
-        failed = "Its block is not served right now: no peer gave it, or the light client has not reached it. Old " +
-            "blocks may no longer be kept by peers.",
+    describe = PastDescribeSection.Failed(
+        offered.offer,
+        offered.simpleOffer,
+        "Its block is not served right now: no peer gave it, or the light client has not reached it. Try again later.",
     ),
 )
 
@@ -343,6 +348,19 @@ private fun ActivityDetailDescribedDarkPreview() = ActivityDetailPreview(describ
 @Composable
 private fun ActivityDetailDescribeFailedPreview() = ActivityDetailPreview(describeFailed)
 
+private val describeNotOffered = describeOffer.copy(
+    describe = PastDescribeSection.NotOffered(
+        offered.offer,
+        offered.simpleOffer,
+        "Its block is older than the last 512 blocks, all this network's light client reads, so its call cannot be " +
+            "read here.",
+    ),
+)
+
+@Preview
+@Composable
+private fun ActivityDetailDescribeNotOfferedPreview() = ActivityDetailPreview(describeNotOffered)
+
 /** Every preview above, which ActivityDetailScreenPreviewsTest renders: a new preview goes in here too. */
 internal val activityDetailScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("sent") { ActivityDetailSentPreview() },
@@ -365,4 +383,5 @@ internal val activityDetailScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("described") { ActivityDetailDescribedPreview() },
     ScreenPreview("described-dark") { ActivityDetailDescribedDarkPreview() },
     ScreenPreview("describe-failed") { ActivityDetailDescribeFailedPreview() },
+    ScreenPreview("describe-not-offered") { ActivityDetailDescribeNotOfferedPreview() },
 )

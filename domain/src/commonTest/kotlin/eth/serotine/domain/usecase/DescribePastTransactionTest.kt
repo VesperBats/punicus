@@ -99,7 +99,16 @@ class DescribePastTransactionTest {
             return if (number > 100) BlockReading.NotYet else BlockReading.Read(block)
         }
     }
-    private val describePast = DescribePastTransaction(history, blocks, describe, catalog)
+    private val enabled = kotlinx.coroutines.flow.MutableStateFlow(setOf(Network.ETHEREUM))
+    private val networks = object : eth.serotine.domain.repository.NetworkSettings {
+        override fun observe() = enabled
+        override suspend fun setEnabled(network: Network, on: Boolean): Boolean = error("not used")
+    }
+    private var reach: eth.serotine.domain.repository.BlockReach = eth.serotine.domain.repository.BlockReach.Deep
+    private val reaching = object : BlockTransactions by blocks {
+        override fun reach(network: Network) = reach
+    }
+    private val describePast = DescribePastTransaction(history, reaching, describe, catalog, networks)
 
     private fun depositData(amount: Long) = deposit.selector.removePrefix("0x").hexToBytes() +
         AbiDecoder.encode(AbiType.TupleType(deposit.params), AbiValue.TupleValue(listOf("amount" to AbiValue.UintValue(UInt256.of(amount), 256))))
@@ -109,24 +118,38 @@ class DescribePastTransactionTest {
     @Test
     fun aTransactionReadFromItsBlockIsDescribedAndAProxySaysItsCodeMayHaveChanged() = runTest {
         block = listOf(ChainTransaction(hash, user, pool, UInt256.ZERO, "0x" + depositData(5).toHex()))
-        val read = assertIs<PastDescription.Read>(describePast(account, hash, 42))
+        val read = assertIs<PastDescription.Read>(describePast(Network.ETHEREUM, hash, 42))
         assertTrue(read.downloaded)
         assertEquals("Deposit", (read.result as ClearSignResult.ClearSigned).intent)
         assertFalse(read.codeMayHaveChanged)
         assertEquals(listOf(42L), blockReads)
 
         block = listOf(ChainTransaction(hash, user, proxy, UInt256.ZERO, "0x" + depositData(5).toHex()))
-        assertTrue(assertIs<PastDescription.Read>(describePast(account, hash, 42)).codeMayHaveChanged)
+        assertTrue(assertIs<PastDescription.Read>(describePast(Network.ETHEREUM, hash, 42)).codeMayHaveChanged)
+    }
+
+    @Test
+    fun whatCanBeDescribedIsSaidBeforeTheTap() = runTest {
+        // Head at 100: block 42 is inside the window, block 1 not.
+        assertEquals(PastAvailability.FromBlock(deep = false), describePast.availability(Network.ETHEREUM, hash, 42))
+        reach = eth.serotine.domain.repository.BlockReach.Window(50)
+        assertEquals(PastAvailability.NotOffered(PastNotOffered.OutsideWindow(50)), describePast.availability(Network.ETHEREUM, hash, 1))
+        reach = eth.serotine.domain.repository.BlockReach.None
+        assertEquals(PastAvailability.NotOffered(PastNotOffered.NoBlockReads), describePast.availability(Network.ETHEREUM, hash, 42))
+        assertEquals(PastAvailability.NotOffered(PastNotOffered.NoBlock), describePast.availability(Network.ETHEREUM, hash, null))
+        enabled.value = emptySet()
+        assertEquals(PastAvailability.NotOffered(PastNotOffered.NetworkOff), describePast.availability(Network.ETHEREUM, hash, 42))
+        assertTrue(blockReads.isEmpty(), "nothing is downloaded to say so")
     }
 
     @Test
     fun whatCannotBeReadSaysWhy() = runTest {
         block = emptyList()
-        assertEquals(PastDescription.NotRead(PastCallUnavailable.NotInBlock), describePast(account, hash, 42))
-        assertEquals(PastDescription.NotRead(PastCallUnavailable.BlockNotServed), describePast(account, hash, 400))
-        assertEquals(PastDescription.NotRead(PastCallUnavailable.NoBlock), describePast(account, hash, null))
+        assertEquals(PastDescription.NotRead(PastCallUnavailable.NotInBlock), describePast(Network.ETHEREUM, hash, 42))
+        assertEquals(PastDescription.NotRead(PastCallUnavailable.BlockNotServed), describePast(Network.ETHEREUM, hash, 400))
+        assertEquals(PastDescription.NotRead(PastCallUnavailable.NoBlock), describePast(Network.ETHEREUM, hash, null))
         block = listOf(ChainTransaction(hash, user, null, UInt256.ZERO, "0x6080"))
-        assertEquals(PastDescription.NotRead(PastCallUnavailable.Creation), describePast(account, hash, 42))
+        assertEquals(PastDescription.NotRead(PastCallUnavailable.Creation), describePast(Network.ETHEREUM, hash, 42))
     }
 
     @Test
@@ -138,7 +161,7 @@ class DescribePastTransactionTest {
                 SentTransfer(Network.ETHEREUM, user, 7, signed, SentAction.Transfer(pool, TransferAsset.Native, UInt256.ZERO), UInt256.ONE, 0),
             ),
         )
-        val read = assertIs<PastDescription.Read>(describePast(account, signed.hash, 42))
+        val read = assertIs<PastDescription.Read>(describePast(Network.ETHEREUM, signed.hash, 42))
         assertFalse(read.downloaded)
         assertEquals(depositData(9).toHex(), read.call.data.toHex())
         assertTrue(blockReads.isEmpty())
@@ -148,7 +171,7 @@ class DescribePastTransactionTest {
     fun aSafesExecutionIsDescribedAsWhatTheSafeRan() = runTest {
         val inner = SafeTx(pool, UInt256.ZERO, depositData(3), SafeOperation.CALL, UInt256.ZERO, UInt256.ZERO, UInt256.ZERO, Address.ZERO, Address.ZERO, 0)
         block = listOf(ChainTransaction(hash, user, safe, UInt256.ZERO, "0x" + SafeExecCall.data(inner, ByteArray(65)).toHex()))
-        val read = assertIs<PastDescription.Read>(describePast(account, hash, 42))
+        val read = assertIs<PastDescription.Read>(describePast(Network.ETHEREUM, hash, 42))
         assertIs<DappCallMeaning.SafeExecution>(read.meaning)
         assertEquals(safe, read.safe)
         assertIs<SafeTxAction.ContractCall>(read.safeAction)
@@ -157,7 +180,7 @@ class DescribePastTransactionTest {
         // A token transfer is read by hand: nothing to describe.
         val transfer = Erc20.transferData(pool, UInt256.ONE)
         block = listOf(ChainTransaction(hash, user, proxy, UInt256.ZERO, "0x" + transfer.toHex()))
-        val plain = assertIs<PastDescription.Read>(describePast(account, hash, 42))
+        val plain = assertIs<PastDescription.Read>(describePast(Network.ETHEREUM, hash, 42))
         assertIs<DappCallMeaning.TokenTransfer>(plain.meaning)
         assertEquals(null, plain.result)
     }
