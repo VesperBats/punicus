@@ -4,6 +4,7 @@ import eth.serotine.domain.model.Address
 import eth.serotine.domain.model.Eip712
 import eth.serotine.domain.model.Network
 import eth.serotine.domain.model.ShownText
+import eth.serotine.domain.model.SmartSessionGrants
 import eth.serotine.domain.model.Token
 import eth.serotine.domain.model.TypedData
 import eth.serotine.domain.model.TypedDataMeaning
@@ -31,6 +32,9 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
             is TypedDataMeaning.Permit, is TypedDataMeaning.Permit2Allowance, is TypedDataMeaning.Permit2Transfer ->
                 "Approval request"
             is TypedDataMeaning.CowOrder -> "Swap order to sign"
+            is TypedDataMeaning.SafeTransaction -> "Safe transaction to sign"
+            is TypedDataMeaning.SafeMessage -> "Safe message to sign"
+            is TypedDataMeaning.SmartSession -> "Session key to grant"
             null -> "Data to sign"
         }
 
@@ -40,6 +44,9 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
             is TypedDataMeaning.Permit, is TypedDataMeaning.Permit2Allowance, is TypedDataMeaning.Permit2Transfer ->
                 "Sign a dApp's approval"
             is TypedDataMeaning.CowOrder -> "Sign a swap order for a dApp"
+            is TypedDataMeaning.SafeTransaction -> "Sign a Safe transaction"
+            is TypedDataMeaning.SafeMessage -> "Sign a message for a Safe"
+            is TypedDataMeaning.SmartSession -> "Grant a session key"
             null -> "Sign a dApp's data"
         }
 
@@ -62,8 +69,28 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
                 "An order on CoW Protocol to sell ${amount(meaning.sellAmount, meaning.sellToken)} for at least " +
                     "${amount(meaning.buyAmount, meaning.buyToken)}, until ${until(meaning.validTo)}. $ORDER_NOTE"
             }
+            // Its own block says what it does (DappSafeTxSection).
+            is TypedDataMeaning.SafeTransaction -> "A transaction of the Safe ${short(meaning.safe)}, for its " +
+                "owners to sign. Once enough of them have, anyone may execute it. What it does is decoded below."
+            is TypedDataMeaning.SafeMessage -> "A message signed for the Safe ${short(meaning.safe)}, as one of " +
+                "its owners: once enough of them have, contracts take it as the Safe's own signature (EIP-1271). " +
+                "The request holds only a hash of the message, so Punicus cannot show what the Safe signs."
+            is TypedDataMeaning.SmartSession -> sessionMeaning(meaning)
             null -> null
         }
+
+    /** What to know before granting a session key, at the top: each power that has no limit. */
+    val meaningWarnings: List<String>
+        get() = (content.meaning as? TypedDataMeaning.SmartSession)?.grants?.grants.orEmpty().flatMap { grant ->
+            listOfNotNull(
+                SESSION_ANY_CALL.takeIf { grant.anyCall },
+                SESSION_SUDO.takeIf { grant.sudo },
+                // Smart Sessions sets no end to a session once enabled; no time policy is read here.
+                SESSION_NEVER_EXPIRES,
+                SESSION_SIGNS_MESSAGES.takeIf { grant.signsMessages },
+                SESSION_GENERIC.takeIf { grant.genericPolicy },
+            )
+        }.distinct()
 
     /** The decoded struct's parts, each in full. */
     val meaningFields: List<SignInField>
@@ -97,8 +124,83 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
                 SignInField("Valid until", until(meaning.validTo)),
                 SignInField("Partly filled", if (meaning.partiallyFillable) "Allowed" else "No: all at once or not"),
             )
+            is TypedDataMeaning.SafeTransaction -> emptyList()
+            is TypedDataMeaning.SafeMessage -> listOf(
+                SignInField("Safe", Eip55.format(meaning.safe)),
+                SignInField("Message (its hash)", "0x${meaning.message}"),
+            )
+            is TypedDataMeaning.SmartSession -> {
+                val grants = meaning.grants.grants
+                grants.flatMapIndexed { index, grant ->
+                    val label = if (grants.size == 1) "" else " (session ${index + 1})"
+                    buildList {
+                        add(SignInField("Account$label", Eip55.format(grant.account)))
+                        add(SignInField("Network$label", network(grant.chainId)))
+                        add(SignInField("Allowed calls$label", actions(grant)))
+                        add(SignInField("Lasts$label", "Until it is removed from the account: Smart Sessions sets no end"))
+                        add(
+                            SignInField(
+                                "Can be enabled until$label",
+                                grant.enableBy?.let(formatTime) ?: "Any time: no date",
+                            ),
+                        )
+                        add(
+                            SignInField(
+                                "Signs messages for the account$label",
+                                if (grant.signsMessages) "Yes, under ${policyNames(grant.messagePolicies)}" else "No",
+                            ),
+                        )
+                        if (grant.claimPolicies.isNotEmpty()) {
+                            add(
+                                SignInField(
+                                    "Claims locked funds$label",
+                                    "Lock tag 0x${grant.lockTag}, under ${policyNames(grant.claimPolicies)}",
+                                ),
+                            )
+                        }
+                        add(SignInField("Session key$label", sessionKey(grant)))
+                        add(SignInField("Checked by$label", "${Eip55.format(grant.emissary)} (its SmartSessionEmissary)"))
+                    }
+                }
+            }
             null -> emptyList()
         }
+
+    private fun sessionMeaning(meaning: TypedDataMeaning.SmartSession): String {
+        val grants = meaning.grants.grants
+        val accounts = grants.map { it.account }.distinct().joinToString(", ") { short(it) }
+        val chains = grants.map { network(it.chainId) }.distinct().joinToString(", ")
+        val unlimited = grants.any { it.anyCall && it.sudo }
+        return "Grants a session key the power to act for $accounts on $chains" +
+            (if (unlimited) ": any call, to any contract, with no limit" else ", within the policies below") +
+            ", until it is removed" +
+            ". Whoever holds the key may then use it without asking you again (Smart Sessions)."
+    }
+
+    private fun actions(grant: eth.serotine.domain.model.SmartSessionGrant): String =
+        grant.actions.joinToString("\n") { action ->
+            val target = if (action.target == SmartSessionGrants.ANY_TARGET) "Any contract" else Eip55.format(action.target)
+            val function = if (action.selector in SmartSessionGrants.ANY_SELECTOR) "any function" else "function 0x${action.selector}"
+            "$target, $function, under ${policyNames(action.policies)}"
+        }.ifEmpty { "None" }
+
+    private fun policyNames(policies: List<Address>): String = if (policies.isEmpty()) {
+        "no policy"
+    } else {
+        policies.joinToString(", ") {
+            if (it == SmartSessionGrants.SUDO_POLICY) "SudoPolicy (no limit)" else "policy ${Eip55.format(it)}"
+        }
+    }
+
+    private fun sessionKey(grant: eth.serotine.domain.model.SmartSessionGrant): String {
+        val owners = grant.keyOwners
+        return if (owners != null) {
+            "${owners.threshold} of ${owners.owners.joinToString(", ") { Eip55.format(it) }} (OwnableValidator)"
+        } else {
+            "Checked by ${Eip55.format(grant.validator)}, with ${grant.validatorInitSize} bytes of its own data: " +
+                "who holds the key is not decoded here"
+        }
+    }
 
     /** The domain: who verifies the signature, on which chain. */
     val domainFields: List<SignInField>
@@ -181,7 +283,7 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
     private fun expiration(seconds: UInt256): String =
         if (seconds.isZero) "for the block it is used in" else "until ${until(seconds)}"
 
-    private fun network(chainId: UInt256): String {
+    internal fun network(chainId: UInt256): String {
         val id = chainId.toLongOrNull()
         return id?.let(Network::ofChainId)?.let { "${it.displayName} ($id)" } ?: "Chain ${chainId.toDecimal()}"
     }
@@ -198,6 +300,15 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
         const val APPROVAL_NOTE =
             "Signing moves nothing itself, but the spender may then take it without asking you again."
         const val ORDER_NOTE = "Signing lets CoW Protocol's solvers fill it, without asking you again."
+
+        const val SESSION_ANY_CALL = "The session may call any contract, any function, as the account."
+        const val SESSION_SUDO = "Its policy is the SudoPolicy: nothing limits what the session does, its amounts " +
+            "included. Whoever holds the session key can move everything the account holds."
+        const val SESSION_NEVER_EXPIRES = "Once enabled, the session has no end: it lasts until it is removed from " +
+            "the account. The date in the data is only how long it can be enabled."
+        const val SESSION_SIGNS_MESSAGES = "The session may sign messages for the account, and a signed permit or " +
+            "order can let others take its tokens."
+        const val SESSION_GENERIC = "A call no action names may still be allowed by the account's generic policies."
 
         fun short(address: Address): String = Eip55.format(address).let { it.take(6) + "…" + it.takeLast(4) }
     }

@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import eth.serotine.domain.model.AccountId
 import eth.serotine.ui.components.Blockie
 import eth.serotine.ui.components.ClearSignedDescription
+import eth.serotine.ui.components.DappSafeTxBlock
 import eth.serotine.ui.components.TraceText
 import eth.serotine.ui.components.TracedEffects
 import eth.serotine.ui.components.NotSentFields
@@ -188,6 +189,7 @@ fun DappTransactionScreen(
             Heading("What it does")
             state.meaning?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
             state.meaningFields.forEach { Field(it) }
+            state.safeTx?.let { DappSafeTxBlock(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
             if (state.describing) {
                 Row(
                     Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

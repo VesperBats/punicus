@@ -97,6 +97,45 @@ class SafeTx(
         return Digest.of(keccak256(EIP712_PREFIX + domain + struct).toHex())
     }
 
+    /**
+     * This transaction as the typed data an owner is asked to sign (`eth_signTypedData_v4`) for the Safe at [safe] on
+     * the chain [chainId], as Safe{Wallet} sends it for a Safe of 1.3.0 on: its [hash] is that typed data's digest.
+     */
+    fun typedData(chainId: Long, safe: Address): TypedData = TypedData(
+        types = mapOf(
+            Eip712.DOMAIN_TYPE to listOf(TypedField("chainId", "uint256"), TypedField("verifyingContract", "address")),
+            "SafeTx" to listOf(
+                TypedField("to", "address"),
+                TypedField("value", "uint256"),
+                TypedField("data", "bytes"),
+                TypedField("operation", "uint8"),
+                TypedField("safeTxGas", "uint256"),
+                TypedField("baseGas", "uint256"),
+                TypedField("gasPrice", "uint256"),
+                TypedField("gasToken", "address"),
+                TypedField("refundReceiver", "address"),
+                TypedField("nonce", "uint256"),
+            ),
+        ),
+        primaryType = "SafeTx",
+        domain = mapOf(
+            "chainId" to TypedValue.Number(chainId.toString()),
+            "verifyingContract" to TypedValue.Text(safe.hex),
+        ),
+        message = mapOf(
+            "to" to TypedValue.Text(to.hex),
+            "value" to TypedValue.Text(value.toDecimal()),
+            "data" to TypedValue.Text("0x" + callData.toHex()),
+            "operation" to TypedValue.Number(operation.code.toString()),
+            "safeTxGas" to TypedValue.Text(safeTxGas.toDecimal()),
+            "baseGas" to TypedValue.Text(baseGas.toDecimal()),
+            "gasPrice" to TypedValue.Text(gasPrice.toDecimal()),
+            "gasToken" to TypedValue.Text(gasToken.hex),
+            "refundReceiver" to TypedValue.Text(refundReceiver.hex),
+            "nonce" to TypedValue.Text(nonce.toString()),
+        ),
+    )
+
     override fun equals(other: Any?): Boolean =
         other is SafeTx &&
             to == other.to &&

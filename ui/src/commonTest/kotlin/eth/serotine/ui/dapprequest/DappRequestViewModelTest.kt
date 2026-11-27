@@ -361,6 +361,21 @@ class DappRequestViewModelTest {
         assertNull(state.refusal)
     }
 
+    /** The Safe a request's typed data is for, as a test sets it: not available until then. */
+    private val safeKind = kotlinx.coroutines.flow.MutableStateFlow<eth.serotine.domain.repository.KindReading>(
+        eth.serotine.domain.repository.KindReading.Unavailable(eth.serotine.domain.repository.ReadUnavailable.NO_ENGINE),
+    )
+    private val observeSafe by lazy {
+        eth.serotine.domain.usecase.ObserveSafe(
+            object : eth.serotine.domain.repository.AddressKinds {
+                override fun observeKind(network: Network, address: eth.serotine.domain.model.Address) = safeKind
+            },
+            accounts,
+        )
+    }
+
+    private val traced = mutableListOf<Triple<Address, Address, eth.serotine.domain.model.UInt256>>()
+
     private fun TestScope.viewModel(id: Long = 1): DappRequestViewModel {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val observe = ObserveDappMessages(requests, accounts, networks, tokens, aliases, clock = { now })
@@ -371,12 +386,15 @@ class DappRequestViewModelTest {
                 throwing -> eth.serotine.ui.dapptransaction.describingThat(IllegalStateException("engine"))
                 else -> eth.serotine.ui.dapptransaction.describing(tokens, *deployments, onRead = onRead, unproven = { unproven })
             },
-            SignDappMessage(requests, accounts, networks, signer, clock = { now }),
+            SignDappMessage(requests, accounts, networks, signer, observeSafe, clock = { now }),
             RefuseDappRequest(requests, accounts, networks, clock = { now }),
             DescribeKeyStore(keys),
+            observeSafe,
+            eth.serotine.ui.dapptransaction.tracing(tokens, backgroundScope, traced),
             clock = { clock },
             formatTime = { "at $it" },
             ticks = ticks.map { },
+            formatOn = kotlinx.coroutines.Dispatchers.Unconfined,
         )
         backgroundScope.launch { vm.uiState.collect {} }
         runCurrent()
@@ -422,6 +440,71 @@ class DappRequestViewModelTest {
         ticks.value = 1
         runCurrent()
         assertEquals("The dApp waits for an answer for about a minute more.", vm.uiState.value.waits)
+    }
+
+    private val safe = Address.of("0x425e7c0c12e60bc7fe106ac3b44fa9d0602ca0ab")
+    private val recipient = Address.of("0xbcb8a02a8166ffb75924ecf89865539feac12d9c")
+
+    private fun safeTx(id: Long, tx: eth.serotine.domain.model.SafeTx) =
+        request(id).copy(ask = DappAsk.SignTypedData(held.address, Eip712.encode(tx.typedData(Network.SEPOLIA.chainId, safe))!!))
+
+    private fun plain(to: Address, data: ByteArray, operation: eth.serotine.domain.model.SafeOperation = eth.serotine.domain.model.SafeOperation.CALL) =
+        eth.serotine.domain.model.SafeTx(
+            to, eth.serotine.domain.model.UInt256.ZERO, data, operation, eth.serotine.domain.model.UInt256.ZERO,
+            eth.serotine.domain.model.UInt256.ZERO, eth.serotine.domain.model.UInt256.ZERO, Address.ZERO, Address.ZERO, 55,
+        )
+
+    private fun safeState(owners: List<Address>) = eth.serotine.domain.repository.KindReading.Verified(
+        eth.serotine.domain.repository.AddressKind.Safe(
+            eth.serotine.domain.repository.SafeState("1.4.1", l2 = false, owners, 2, 55, emptyList(), null),
+        ),
+        100,
+    )
+
+    @Test
+    fun safeWalletsTokenTransferIsDecodedOnItsOwnCardWithTheSafeAndItsHash() = runTest {
+        val tx = plain(usdc.address, eth.serotine.domain.model.Erc20.transferData(recipient, eth.serotine.domain.model.UInt256.of(40_000_000)))
+        requests.waiting.value = listOf(safeTx(4, tx))
+        val vm = viewModel(4)
+        safeKind.value = safeState(listOf(held.address, recipient))
+        runCurrent()
+        val state = vm.uiState.value
+        assertEquals("Safe transaction to sign", state.title)
+        val section = assertNotNull(state.safeTx)
+        assertEquals("Send 40 USDC", section.action.title)
+        assertEquals(Eip55.format(safe), section.safeAddress)
+        assertEquals("Nonce 55", section.nonce)
+        assertEquals("0x" + tx.hash(Network.SEPOLIA.chainId, safe).hex, section.hash)
+        assertTrue(section.safeLine.contains("2 of 2 owners, at nonce 55: this is its next transaction"), section.safeLine)
+        assertNull(section.safeWarning)
+        assertNull(state.refusal)
+        assertTrue(state.warnings.isEmpty(), "${state.warnings}")
+        // Traced as the Safe's own call, as screen 17 traces one.
+        assertEquals(Triple(safe, usdc.address, eth.serotine.domain.model.UInt256.ZERO), traced.last())
+        assertEquals(eth.serotine.ui.components.TraceText.SAFE_CALL_NOTE, section.action.trace?.note)
+        vm.onPasswordChange("correct horse")
+        vm.sign()
+        runCurrent()
+        assertEquals(safeTx(4, tx).id, requests.signatures.single().first)
+    }
+
+    @Test
+    fun aSafeTxEnablingAModuleIsRefusedWithScreen17sReason() = runTest {
+        val enable = plain(safe, "610b5925".let { sel -> (sel + "0".repeat(24) + recipient.hex.removePrefix("0x")) }.chunked(2).map { it.toInt(16).toByte() }.toByteArray())
+        requests.waiting.value = listOf(safeTx(5, enable))
+        val state = viewModel(5).uiState.value
+        assertEquals("Enable a module", state.safeTx?.action?.title)
+        assertEquals(eth.serotine.ui.components.MODULE_ENABLED_REFUSAL, state.refusal)
+        assertTrue(state.signUnavailable)
+    }
+
+    @Test
+    fun anOwnerThatIsNotOneIsWarned() = runTest {
+        val tx = plain(usdc.address, eth.serotine.domain.model.Erc20.transferData(recipient, eth.serotine.domain.model.UInt256.of(1)))
+        requests.waiting.value = listOf(safeTx(6, tx))
+        safeKind.value = safeState(listOf(recipient))
+        val section = assertNotNull(viewModel(6).uiState.value.safeTx)
+        assertEquals("The account asked is not one of this Safe's owners.", section.safeWarning)
     }
 
     @Test

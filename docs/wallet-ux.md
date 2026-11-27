@@ -998,7 +998,14 @@ time*.
     - `delegatecall` is marked as such and decoded no further: the Safe runs
       the target's code as itself. This wallet shows it and does not sign,
       approve or execute it (`SafeTxRefusal.DelegateCall`); a batch made by
-      another wallet through MultiSend arrives as one. By the owner's ruling
+      another wallet through MultiSend arrives as one. A batch through one
+      of Safe's own MultiSend or MultiSendCallOnly deployments (1.3.0,
+      1.4.1, 1.5.0; their CREATE2 addresses fix their code) is decoded call
+      by call for display, each call as a Safe transaction of its own would
+      be, and stays refused. An NFT sent (`safeTransferFrom`) and a CoW order
+      pre-signed (`setPreSignature`, whose amounts are not in the
+      transaction, as it says) are decoded too
+      (docs/walletconnect.md, *A Safe transaction to sign*). By the owner's ruling
       (2026-10-18, #57) a delegate call is to be co-signed only when its
       target is the pinned MultiSendCallOnly 1.4.1 and each inner call is
       decoded and shown. Not built yet (#57): until it is, every delegate

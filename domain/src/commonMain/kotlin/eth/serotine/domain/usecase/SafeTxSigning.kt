@@ -244,12 +244,27 @@ data class DecodedSafeTx private constructor(
  * the guard and disabling a module are not refused: they carry a warning. Null when it may be
  * signed.
  */
-internal fun SigningRequest.unsignable(): SafeTxRefusal? {
-    if (tx.operation == SafeOperation.DELEGATECALL) return SafeTxRefusal.DelegateCall
-    if (SafeTxGasTerms.of(tx) != null) return SafeTxRefusal.GasTerms
-    val action = SafeTxAction.of(safe, tx)
+internal fun SigningRequest.unsignable(): SafeTxRefusal? =
+    safeCallRefusal(network, safe, tx.to, SafeTxAction.of(safe, tx), tx.operation, SafeTxGasTerms.of(tx))
+
+/**
+ * [SigningRequest.unsignable] for a Safe transaction that did not come as a signing request: one a dApp asks an
+ * owner held here to sign as typed data, or to execute (docs/walletconnect.md, *A Safe transaction to sign*). The
+ * call of the Safe at [safe] on [network] to [to], decoded as [action], run as [operation], with [gasTerms] (null:
+ * none). Null when it may be signed.
+ */
+fun safeCallRefusal(
+    network: Network,
+    safe: Address,
+    to: Address,
+    action: SafeTxAction,
+    operation: SafeOperation,
+    gasTerms: SafeTxGasTerms?,
+): SafeTxRefusal? {
+    if (operation == SafeOperation.DELEGATECALL) return SafeTxRefusal.DelegateCall
+    if (gasTerms != null) return SafeTxRefusal.GasTerms
     // On chain a self-call need not match the strict decoding to change a setting: only the exact ones pass.
-    if (tx.to == safe && action !is SafeTxAction.SettingsChange && action != SafeTxAction.Rejection) {
+    if (to == safe && action !is SafeTxAction.SettingsChange && action != SafeTxAction.Rejection) {
         return SafeTxRefusal.UndecodedSelfCall
     }
     val change = (action as? SafeTxAction.SettingsChange)?.change
@@ -847,7 +862,8 @@ internal fun SigningRequest.moves(token: Address?): UInt256 = when (val action =
             else -> UInt256.ZERO
         }
     }
-    is SafeTxAction.DelegateCall -> UInt256.ZERO
+    // A delegate call sends no value of its own, a batch among them; what its code may do is not known here.
+    is SafeTxAction.DelegateCall, is SafeTxAction.Batch -> UInt256.ZERO
     else -> if (token == null) tx.value else UInt256.ZERO
 }
 

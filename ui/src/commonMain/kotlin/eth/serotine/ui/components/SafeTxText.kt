@@ -49,6 +49,8 @@ data class SafeTxActionItem(
      * *Phase B*); null for a delegate call, which is not traced, and before it is traced.
      */
     val trace: TraceSection? = null,
+    /** A batch's calls, each as its own item, in the order the Safe makes them; empty for anything else. */
+    val calls: List<SafeTxActionItem> = emptyList(),
 ) {
     /**
      * This item with what the built-in descriptors say of its call ([result], null while not known, [busy]
@@ -131,7 +133,8 @@ internal data class DecodingToken(val token: Token, val sharesBuiltInSymbol: Boo
  */
 internal fun safeTxActionItem(
     action: SafeTxAction,
-    nonce: Long,
+    /** The transaction's nonce; null where it is not known yet (an `execTransaction` runs at the Safe's then). */
+    nonce: Long?,
     tokens: List<DecodingToken>,
     network: Network,
     hideAmounts: Boolean = false,
@@ -204,13 +207,73 @@ internal fun safeTxActionItem(
         )
     }
     is SafeTxAction.SettingsChange -> settingsChange(action.change)
-    SafeTxAction.Rejection -> SafeTxActionItem(
-        title = "Reject: use up nonce $nonce",
+    SafeTxAction.Rejection -> nonce?.let {
+        SafeTxActionItem(
+            title = "Reject: use up nonce $nonce",
+            notes = listOf(
+                "Nothing is called and nothing moves. Executed, it uses up nonce $nonce, so no other " +
+                    "transaction at that nonce can ever run.",
+            ),
+        )
+    } ?: SafeTxActionItem(
+        title = "Reject: use up the Safe's nonce",
         notes = listOf(
-            "Nothing is called and nothing moves. Executed, it uses up nonce $nonce, so no other " +
-                "transaction at that nonce can ever run.",
+            "Nothing is called and nothing moves. Executed, it uses up the Safe's nonce, so no other transaction at " +
+                "that nonce can ever run.",
         ),
     )
+    is SafeTxAction.NftTransfer -> SafeTxActionItem(
+        title = "Send NFT #${action.tokenId.toDecimal()}",
+        addresses = listOf(
+            ActionAddress("To", Eip55.format(action.to)),
+            ActionAddress("Collection contract", Eip55.format(action.contract)),
+            ActionAddress("From", Eip55.format(action.from)),
+        ),
+        notes = listOf(
+            "The collection's own safeTransferFrom (ERC-721): its name is the contract's claim and not shown here.",
+        ),
+    )
+    is SafeTxAction.CowPreSignature -> SafeTxActionItem(
+        title = if (action.signed) "Sign a CoW Protocol order" else "Cancel a CoW Protocol order's signature",
+        addresses = listOf(
+            ActionAddress("Order owner", Eip55.format(action.owner)),
+            ActionAddress("CoW Protocol settlement", Eip55.format(eth.serotine.domain.model.TypedDataMeaning.GPV2_SETTLEMENT)),
+        ),
+        notes = listOf(
+            "Order 0x${action.orderUid.take(16)}…, valid until ${utcDate(action.validTo)}.",
+            if (action.signed) {
+                "The order's amounts and tokens are not in this transaction: they were set where it was made (CoW " +
+                    "Protocol's order book), and Punicus cannot show them. Once executed, CoW's solvers may fill it " +
+                    "from the Safe's funds the settlement may take."
+            } else {
+                "Once executed, the order can no longer be filled."
+            },
+        ),
+        warning = PRE_SIGNATURE_WARNING.takeIf { action.signed },
+    )
+    is SafeTxAction.Batch -> {
+        val items = action.calls.map { safeTxActionItem(it, nonce, tokens, network, hideAmounts) }
+        SafeTxActionItem(
+            title = if (items.size == 1) "A batch of 1 call" else "A batch of ${items.size} calls",
+            addresses = listOf(
+                ActionAddress(
+                    if (action.callOnly) "Safe's MultiSendCallOnly" else "Safe's MultiSend",
+                    Eip55.format(action.multiSend),
+                ),
+            ),
+            notes = listOf(
+                "The Safe runs Safe's own ${if (action.callOnly) "MultiSendCallOnly" else "MultiSend"} as itself " +
+                    "(a delegate call), which makes each call below in turn: all of them, or none if one fails.",
+            ),
+            warning = listOfNotNull(
+                SafeTxActionItem.APPROVAL.takeIf { items.any { it.warning?.contains(SafeTxActionItem.APPROVAL) == true } || action.calls.any { it is SafeTxAction.TokenApproval } },
+                // MultiSendCallOnly reverts an inner delegate call: the whole batch then cannot run.
+                (if (action.callOnly) BATCH_CANNOT_RUN else BATCH_INNER_DELEGATE)
+                    .takeIf { action.calls.any { it is SafeTxAction.DelegateCall || it is SafeTxAction.Batch } },
+            ).takeIf { it.isNotEmpty() }?.joinToString(" "),
+            calls = items,
+        )
+    }
     is SafeTxAction.ContractCall -> SafeTxActionItem(
         // An approval is flagged by what the call is, before and without any description (docs/clear-signing.md, A3).
         warning = SafeTxActionItem.APPROVAL.takeIf {
@@ -233,6 +296,37 @@ internal fun safeTxActionItem(
             "owners and funds, and the code can change any of them. Punicus shows it and decodes it no " +
             "further, and does not sign, approve or execute it.",
     )
+}
+
+/** What a CoW pre-signature lets happen, said before it is signed. */
+internal const val PRE_SIGNATURE_WARNING = "Executing this lets CoW Protocol fill an order whose amounts Punicus cannot " +
+    "see: check them where the order was made before you sign."
+
+/** A batch that runs another contract's code as the Safe. */
+internal const val BATCH_INNER_DELEGATE = "A call in this batch is itself a delegate call: the Safe would run that " +
+    "contract's code as itself."
+
+/** A MultiSendCallOnly batch with a delegate call in it, which that contract refuses. */
+internal const val BATCH_CANNOT_RUN = "A call in this batch is a delegate call, which MultiSendCallOnly refuses: the " +
+    "whole batch reverts and cannot run."
+
+/** [seconds] since 1970 as a UTC date and time, "2026-11-26 14:05 UTC"; "no end" past year 9999. */
+internal fun utcDate(seconds: Long): String {
+    if (seconds > 253_402_300_799L || seconds < 0) return "no end"
+    val days = seconds / 86_400
+    val rest = seconds % 86_400
+    // Howard Hinnant's civil_from_days.
+    val z = days + 719_468
+    val era = (if (z >= 0) z else z - 146_096) / 146_097
+    val doe = z - era * 146_097
+    val yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365
+    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    val mp = (5 * doy + 2) / 153
+    val day = doy - (153 * mp + 2) / 5 + 1
+    val month = if (mp < 10) mp + 3 else mp - 9
+    val year = yoe + era * 400 + if (month <= 2) 1 else 0
+    fun two(n: Long) = n.toString().padStart(2, '0')
+    return "$year-${two(month)}-${two(day)} ${two(rest / 3_600)}:${two(rest % 3_600 / 60)} UTC"
 }
 
 private fun settingsChange(change: SafeSettingsChange): SafeTxActionItem = when (change) {

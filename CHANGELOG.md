@@ -12,6 +12,23 @@ and issues of this repository.
 
 ### Added
 
+- What Safe{Wallet} asks over WalletConnect is decoded by default: a Safe
+  transaction to sign (`SafeTx`) shows what it does as the Safe's own screen
+  does (a payment, a token or an NFT sent, an approval, a change of owners or
+  threshold, a CoW order pre-signed, a batch call by call), with the Safe as
+  the light client reads it, its nonce and its hash; an owner's Execute
+  (`execTransaction`) shows the transaction it runs; an on-chain approval
+  (`approveHash`) and a Safe message (`SafeMessage`) are named, with what
+  their requests cannot show. The Safe refusals now hold there too: a delegate
+  call, gas terms, a module enabled, an unpinned fallback handler, an
+  undecoded call of the Safe itself, or a change leaving the Safe an n-of-n is
+  shown and never signed. A Safe transaction whose call is not decoded says
+  that this is unusual.
+- A session key grant (Rhinestone's Smart Sessions, as ENS's and other dApps'
+  smart accounts ask for one) is read and put in words: the account, the
+  calls allowed, the policies, the expiry and who holds the key, each
+  unlimited power warned about first.
+
 - The first start says what to expect: a note, shown once until OK, that
   the first start takes a few minutes while Punicus finds computers of the
   network to talk to, that nothing works until a network is checked, and

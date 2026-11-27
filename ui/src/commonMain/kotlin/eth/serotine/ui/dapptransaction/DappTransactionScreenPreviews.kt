@@ -493,6 +493,9 @@ internal val dappTransactionScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("not-traced-unavailable") { DappTransactionNotTracedUnavailablePreview() },
     ScreenPreview("safe-traced") { DappTransactionSafeTracedPreview() },
     ScreenPreview("traced-again") { DappTransactionTracedAgainPreview() },
+    ScreenPreview("safe-execution") { DappTransactionSafeExecutionPreview() },
+    ScreenPreview("safe-execution-dark") { DappTransactionSafeExecutionDarkPreview() },
+    ScreenPreview("safe-approve-hash") { DappTransactionSafeApproveHashPreview() },
 )
 
 @Preview
@@ -544,3 +547,81 @@ private fun DappTransactionSafeTracedPreview() = DappTransactionPreview(
 @Preview
 @Composable
 private fun DappTransactionTracedAgainPreview() = DappTransactionPreview(tracedDisagrees.copy(trace = tracedDisagrees.trace!!.copy(tracing = true)))
+
+// An owner asked by Safe{Wallet} to execute a Safe transaction its owners signed: 1 COW to 0xbcb8…2d9c.
+private val executionSafe = eth.serotine.domain.model.Address.of("0x425e7c0c12e60bc7fe106ac3b44fa9d0602ca0ab")
+private val executionCow = eth.serotine.domain.model.Token(
+    eth.serotine.domain.model.Address.of("0xdef1ca1fb7fbcdc777520aa7f396b4e015f497ab"), "COW", "CoW Protocol Token", 18, "cow",
+)
+
+private val safeExecution = payment.copy(
+    name = "Safe{Wallet}",
+    url = "https://app.example.org",
+    network = "On Ethereum, real funds",
+    to = "0x425E7c0C12E60Bc7Fe106AC3b44FA9D0602CA0AB",
+    value = "0 ETH",
+    meaning = "Executes a transaction of the Safe 0x425E7c0C12E60Bc7Fe106AC3b44FA9D0602CA0AB that its owners " +
+        "signed: the Safe runs it now, at its nonce then. What it does is decoded below. This account pays the fee.",
+    meaningFields = listOf(SignInField("Owners' signatures", "130 bytes, checked by the Safe when it runs")),
+    safeTx = eth.serotine.ui.components.dappSafeTxSection(
+        safe = executionSafe,
+        action = eth.serotine.domain.model.SafeTxAction.TokenTransfer(
+            executionCow.address,
+            eth.serotine.domain.model.Address.of("0xbcb8a02a8166ffb75924ecf89865539feac12d9c"),
+            eth.serotine.domain.model.UInt256.of(1_000_000_000_000_000_000),
+        ),
+        gasTerms = null,
+        network = eth.serotine.domain.model.Network.ETHEREUM,
+        tokens = listOf(executionCow),
+        nonce = null,
+        hash = null,
+        reading = eth.serotine.domain.usecase.SafeReading.Verified(
+            eth.serotine.domain.repository.SafeState(
+                "1.4.1", l2 = false,
+                listOf(eth.serotine.domain.model.Address.of(ACCOUNT), executionCow.address), 2, 55, emptyList(), null,
+            ),
+            24_000_000,
+            emptyList(),
+        ),
+        signer = eth.serotine.domain.model.Address.of(ACCOUNT),
+    ),
+    dataHex = "6a761202000000000000000000000000def1ca1fb7fbcdc777520aa7f396b4e015f497ab…",
+    dataSize = "644 bytes",
+    quote = listOf(
+        SignInField("Fee, at most", "0.00093 ETH"),
+        SignInField("Left in the account, at least", "1.20381 ETH"),
+        SignInField("Verified run", "Runs without reverting at block 24,000,012"),
+        SignInField("Gas limit", "98000"),
+        SignInField("Nonce", "7"),
+    ),
+)
+
+@Preview
+@Composable
+private fun DappTransactionSafeExecutionPreview() = DappTransactionPreview(safeExecution)
+
+@Preview
+@Composable
+private fun DappTransactionSafeExecutionDarkPreview() = DappTransactionPreview(safeExecution, darkTheme = true)
+
+private val safeApproveHash = safeExecution.copy(
+    meaning = DappTransactionViewModel.meaningLine(
+        eth.serotine.domain.model.DappCallMeaning.SafeApproveHash(
+            executionSafe,
+            eth.serotine.domain.model.Digest.of("e6d2d3af4226a814bc0aa04b95dba3a35f6a9b861eb97f8dd1ff37fcdf5a68a2"),
+        ),
+        null,
+    ),
+    meaningFields = listOf(
+        SignInField("Safe transaction hash", "0xe6d2d3af4226a814bc0aa04b95dba3a35f6a9b861eb97f8dd1ff37fcdf5a68a2"),
+        SignInField("The Safe", "A Safe 1.4.1, verified by the light client: 2 of 2 owners, at nonce 55."),
+    ),
+    safeTx = null,
+    dataHex = "d4d9bdcde6d2d3af4226a814bc0aa04b95dba3a35f6a9b861eb97f8dd1ff37fcdf5a68a2",
+    dataSize = "36 bytes",
+    warnings = listOf(DappTransactionViewModel.APPROVE_HASH_WARNING),
+)
+
+@Preview
+@Composable
+private fun DappTransactionSafeApproveHashPreview() = DappTransactionPreview(safeApproveHash)

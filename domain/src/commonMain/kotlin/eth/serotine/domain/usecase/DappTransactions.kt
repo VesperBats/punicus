@@ -1,6 +1,7 @@
 package eth.serotine.domain.usecase
 
 import eth.serotine.domain.model.AccountKind
+import eth.serotine.domain.model.DappCallMeaning
 import eth.serotine.domain.model.Network
 import eth.serotine.domain.model.UInt256
 import eth.serotine.domain.repository.AccountList
@@ -53,6 +54,12 @@ sealed interface DappTransactionQuoting {
     /** It cannot be sent: [refusal]; the request can only be refused, with its error. */
     data class Refused(val refusal: DappSignRefusal) : DappTransactionQuoting
 
+    /**
+     * The Safe transaction it executes would leave the Safe as [refusal] says, against the Safe's verified owners now
+     * ([SafeTxRefusal.NeedsRecoveryModule]), or the Safe could not be checked ([refusal] says why).
+     */
+    data class SafeTxRefused(val refusal: SafeTxRefusal) : DappTransactionQuoting
+
     /** Not quoted for now: [refusal] (a balance short, a revert, no verified head yet). */
     data class NotQuoted(val refusal: CallRefusal) : DappTransactionQuoting
 
@@ -91,6 +98,8 @@ class QuoteDappTransaction(
     private val history: TransactionHistory,
     /** What the account has queued in lenient mode, which holds a new quote back (docs/lenient-mode.md). */
     private val outbox: Outbox,
+    /** The Safes an `execTransaction` runs a transaction of, checked for the change that needs a recovery module. */
+    private val observeSafe: ObserveSafe,
     private val clock: () -> Long = ::epochSecondsNow,
 ) {
     /** One quoter per network: a request is quoted on its own network's verified state alone. */
@@ -113,6 +122,11 @@ class QuoteDappTransaction(
         if (request.expiresAtSeconds <= clock()) return DappTransactionQuoting.Expired
         // A review without a refusal names a network its session holds.
         val network = request.network ?: return DappTransactionQuoting.Refused(DappSignRefusal.OTHER_CHAIN)
+        val execution = transaction.meaning as? DappCallMeaning.SafeExecution
+        if (execution != null) {
+            observeSafe.recoveryRefusal(network, execution.safe, execution.call.action(execution.safe))
+                ?.let { return DappTransactionQuoting.SafeTxRefused(it) }
+        }
         val quoter = quoters.getValue(network)
 
         quoter.heldBack(transaction.from)?.let { return DappTransactionQuoting.NotQuoted(it) }

@@ -98,7 +98,7 @@ class DappTransactionsTest {
         DappTransactionRequest(from, to, UInt256.of(1_000_000_000_000_000), ByteArray(0), gas)
 
     private fun quote() =
-        QuoteDappTransaction(requests, accounts, networks, ListCatalog(), balances, inputs, sent, history, outbox = Outbox.None, clock = { now })
+        QuoteDappTransaction(requests, accounts, networks, ListCatalog(), balances, inputs, sent, history, outbox = Outbox.None, observeSafe = noSafes(accounts), clock = { now })
 
     private fun send() =
         SendDappTransaction(requests, accounts, networks, signer, broadcaster, sent, history, receipts, clock = { now })
@@ -138,7 +138,7 @@ class DappTransactionsTest {
     fun aRequestOnGnosisChainIsQuotedOnGnosisChain() = runTest {
         requests.waiting.value = listOf(onGnosis(1))
         val quoting = QuoteDappTransaction(
-            requests, bothAccounts, bothNetworks, ListCatalog(), balances, inputs, sent, history, outbox = Outbox.None, clock = { now },
+            requests, bothAccounts, bothNetworks, ListCatalog(), balances, inputs, sent, history, outbox = Outbox.None, observeSafe = noSafes(bothAccounts), clock = { now },
         )
         val quoted = assertIs<DappTransactionQuoting.Quoted>(quoting(onGnosis(1).id)).quote
         assertEquals(Network.GNOSIS.chainId, quoted.call.transaction.chainId, "the request network's quoter")

@@ -10,6 +10,9 @@ import eth.serotine.domain.repository.TokenCatalog
 import eth.serotine.domain.model.Eip712
 import eth.serotine.domain.model.UInt256
 import eth.serotine.domain.model.TypedDataMeaning
+import eth.serotine.domain.model.SafeTxAction
+import eth.serotine.domain.model.SafeSettingsChange
+import eth.serotine.domain.model.SafeTxGasTerms
 import eth.serotine.domain.model.Token
 import eth.serotine.domain.model.EncodedTypedData
 import eth.serotine.domain.model.Digest
@@ -113,6 +116,14 @@ enum class DappSignRefusal(val error: DappRequestError) {
 
     /** Typed data with more values than D5 shows ([MAX_SHOWN_VALUES]): what would not be shown is not signed. */
     TYPED_TOO_LARGE(DappRequestError.LIMIT_EXCEEDED),
+
+    /**
+     * A Safe transaction, to sign as typed data or to execute, that this wallet signs, approves and executes none
+     * of, whoever proposes it ([DappMessageReview.safeTxRefusal] says which: a delegate call, gas terms, a module
+     * enabled, a fallback handler not pinned, a call of the Safe itself not decoded exactly, an n-of-n without
+     * recovery; docs/wallet-ux.md, screen 17).
+     */
+    SAFE_TX_REFUSED(DappRequestError.UNAUTHORIZED),
 }
 
 /** The most values of typed data's message screen D5 shows, every one: more is refused, never cut. */
@@ -131,6 +142,25 @@ enum class DappSignWarning {
 
     /** Typed data of a struct this app does not know: shown field by field, its meaning not decoded. */
     NOT_DECODED,
+
+    /**
+     * A message signed for a Safe (`SafeMessage`): the struct holds only a hash of what the Safe signs, so what
+     * the signature lets someone do cannot be shown.
+     */
+    SAFE_MESSAGE_HASH_ONLY,
+
+    /**
+     * A Safe transaction, to sign or to execute, whose call is not decoded here: an ordinary one (a payment, a token
+     * or NFT sent, an approval, a change of owners, a batch of them) would be, so this one is unusual.
+     */
+    SAFE_CALL_NOT_DECODED,
+
+    /**
+     * A session key granted on a smart account (Smart Sessions): signing lets whoever holds the key act for the
+     * account within the session's policies, without asking again. Its domain names no contract, so nothing binds
+     * its meaning to code: it is read from the struct.
+     */
+    SESSION_KEY_GRANT,
 
     /**
      * A per-app address signing in to a site that is neither the one it was made for nor one the user linked to it
@@ -193,6 +223,8 @@ data class DappMessageReview(
     val warnings: Set<DappSignWarning>,
     /** When [account] is a per-app address: its site, and how a sign-in's domain stands to it. */
     val perApp: PerAppSigner? = null,
+    /** Why the Safe transaction it asks to sign or execute is refused, when [refusal] is [DappSignRefusal.SAFE_TX_REFUSED]. */
+    val safeTxRefusal: SafeTxRefusal? = null,
 ) {
     /** The message, when [content] is one. */
     val message: PersonalMessage? get() = (content as? DappSignContent.Message)?.message
@@ -234,19 +266,25 @@ fun reviewDappMessage(
         is DappAsk.SignTypedData -> {
             val meaning = TypedDataMeaning.of(ask.typed)
             val named = tokensOf(meaning)
-            val pinned = tokens.filter { it.address in named }.associateBy { it.address }
+            // A Safe transaction may name any token, at any depth of a batch: every built-in one is at hand.
+            val pinned = tokens.filter { meaning is TypedDataMeaning.SafeTransaction || it.address in named }
+                .associateBy { it.address }
             ask.account to DappSignContent.Typed(ask.typed, meaning, pinned)
         }
         is DappAsk.SendTransaction -> {
             val token = ask.transaction.to
-            val pinned = tokens.filter { it.address == token }.associateBy { it.address }
+            val safeCall = ask.transaction.meaning is DappCallMeaning.SafeExecution
+            val pinned = tokens.filter { safeCall || it.address == token }.associateBy { it.address }
             ask.transaction.from to DappSignContent.Transaction(ask.transaction, pinned)
         }
         else -> return null
     }
     val network = request.network
     val account = accounts?.firstOrNull { it.network == network && it.address == signer }
+    // The Safe refusals hold whoever proposes the transaction (CLAUDE.md, *Trust*): checked once the account may sign.
+    val safeTxRefusal = request.network?.let { safeTxRefusalOf(content, it) }
     val refusal = accountRefusal(request, signer, accounts, account, enabled, content is DappSignContent.Transaction)
+        ?: DappSignRefusal.SAFE_TX_REFUSED.takeIf { safeTxRefusal != null }
         ?: when (content) {
         // The account's refusal is null only for a network the session holds.
         is DappSignContent.Message -> signInRefusal(content.signIn, signer, checkNotNull(network), nowSeconds)
@@ -279,15 +317,60 @@ fun reviewDappMessage(
             }
             is DappSignContent.Typed -> {
                 if ("chainId" !in content.typed.data.domain) add(DappSignWarning.NO_CHAIN_ID)
-                if (content.meaning == null) add(DappSignWarning.NOT_DECODED)
+                when (val meaning = content.meaning) {
+                    null -> add(DappSignWarning.NOT_DECODED)
+                    is TypedDataMeaning.SafeMessage -> add(DappSignWarning.SAFE_MESSAGE_HASH_ONLY)
+                    is TypedDataMeaning.SmartSession -> add(DappSignWarning.SESSION_KEY_GRANT)
+                    is TypedDataMeaning.SafeTransaction ->
+                        if (SafeTxAction.of(meaning.safe, meaning.tx).notDecoded) add(DappSignWarning.SAFE_CALL_NOT_DECODED)
+                    else -> Unit
+                }
             }
-            is DappSignContent.Transaction -> {
-                if (content.transaction.meaning is DappCallMeaning.NotDecoded) add(DappSignWarning.NOT_DECODED)
+            is DappSignContent.Transaction -> when (val meaning = content.transaction.meaning) {
+                is DappCallMeaning.NotDecoded -> add(DappSignWarning.NOT_DECODED)
+                is DappCallMeaning.SafeExecution ->
+                    if (meaning.call.action(meaning.safe).notDecoded) add(DappSignWarning.SAFE_CALL_NOT_DECODED)
+                else -> Unit
             }
         }
     }
-    return DappMessageReview(request, signer, account, content, refusal, warnings, perApp)
+    return DappMessageReview(
+        request, signer, account, content, refusal, warnings, perApp,
+        safeTxRefusal = safeTxRefusal.takeIf { refusal == DappSignRefusal.SAFE_TX_REFUSED },
+    )
 }
+
+/**
+ * Why the Safe transaction [content] asks to sign (`SafeTx` typed data) or to execute (`execTransaction`) on [network]
+ * is refused, as screen 17 refuses one ([safeCallRefusal]); null when it is none, or may be signed.
+ */
+private fun safeTxRefusalOf(content: DappSignContent, network: Network): SafeTxRefusal? = when (content) {
+    is DappSignContent.Typed -> (content.meaning as? TypedDataMeaning.SafeTransaction)?.let { meaning ->
+        val tx = meaning.tx
+        safeCallRefusal(network, meaning.safe, tx.to, SafeTxAction.of(meaning.safe, tx), tx.operation, SafeTxGasTerms.of(tx))
+    }
+    is DappSignContent.Transaction -> when (val meaning = content.transaction.meaning) {
+        is DappCallMeaning.SafeExecution -> {
+            val call = meaning.call
+            safeCallRefusal(network, meaning.safe, call.to, call.action(meaning.safe), call.operation, call.gasTerms)
+        }
+        // What the Safe would run is not known here, so none of the refusals can be checked.
+        is DappCallMeaning.SafeExecutionNotDecoded -> SafeTxRefusal.UndecodedSelfCall
+        else -> null
+    }
+    is DappSignContent.Message -> null
+}
+
+/**
+ * Whether this action, or a call in its batch, is one nothing here decodes: a contract call, or a delegate call
+ * of anything but a batch.
+ */
+val SafeTxAction.notDecoded: Boolean
+    get() = when (this) {
+        is SafeTxAction.ContractCall, is SafeTxAction.DelegateCall -> true
+        is SafeTxAction.Batch -> calls.any { it.notDecoded }
+        else -> false
+    }
 
 /** Why [signer] cannot sign [request] here, whatever it asks; null when it can. */
 private fun accountRefusal(
@@ -345,7 +428,8 @@ private fun tokensOf(meaning: TypedDataMeaning?): Set<Address> = when (meaning) 
     is TypedDataMeaning.Permit2Allowance -> setOf(meaning.token)
     is TypedDataMeaning.Permit2Transfer -> setOf(meaning.token)
     is TypedDataMeaning.CowOrder -> setOf(meaning.sellToken, meaning.buyToken)
-    null -> emptySet()
+    is TypedDataMeaning.SafeTransaction, is TypedDataMeaning.SafeMessage, is TypedDataMeaning.SmartSession, null ->
+        emptySet()
 }
 
 /**
@@ -438,6 +522,12 @@ sealed interface DappMessageSigning {
     /** Not signed: [refusal]. */
     data class Refused(val refusal: DappSignRefusal) : DappMessageSigning
 
+    /**
+     * Not signed: the Safe transaction it is would leave the Safe as [refusal] says, against the Safe's verified
+     * owners now ([SafeTxRefusal.NeedsRecoveryModule]), or the Safe could not be checked ([refusal] says why).
+     */
+    data class SafeTxRefused(val refusal: SafeTxRefusal) : DappMessageSigning
+
     /** The dApp stopped waiting: nothing is answered but that it expired. */
     data object Expired : DappMessageSigning
 
@@ -460,6 +550,8 @@ class SignDappMessage(
     private val accounts: AccountRepository,
     private val networks: NetworkSettings,
     private val signer: Signer,
+    /** The Safes a `SafeTx` to sign is of, checked for the change that needs a recovery module. */
+    private val observeSafe: ObserveSafe,
     private val clock: () -> Long = ::epochSecondsNow,
 ) {
     suspend operator fun invoke(id: DappRequestId, unlock: Unlock): DappMessageSigning {
@@ -470,6 +562,12 @@ class SignDappMessage(
         review.refusal?.let { return DappMessageSigning.Refused(it) }
         // A transaction is quoted and sent as one (SendDappTransaction), never signed as a message.
         val digest = review.digest ?: return DappMessageSigning.Gone
+        val safeTx = (review.content as? DappSignContent.Typed)?.meaning as? TypedDataMeaning.SafeTransaction
+        if (safeTx != null) {
+            val action = SafeTxAction.of(safeTx.safe, safeTx.tx)
+            observeSafe.recoveryRefusal(checkNotNull(request.network), safeTx.safe, action)
+                ?.let { return DappMessageSigning.SafeTxRefused(it) }
+        }
         if (request.expiresAtSeconds <= clock()) return DappMessageSigning.Expired
         val signature = when (val signing = signer.sign(review.address, digest, unlock)) {
             is Signing.Signed -> signing.signature
@@ -590,4 +688,23 @@ class AnswerDappRequestsAtOnce(
             }
             is DappAsk.PersonalSign, is DappAsk.SignTypedData -> null
         }
+}
+
+/**
+ * [SafeTxRefusal.NeedsRecoveryModule] when [action], a call of the Safe at [safe] on [network], is a change of its
+ * owners or threshold that would leave it an n-of-n above one against its verified owners now, as screen 17 refuses
+ * one (owner ruling, 2026-10-18, #54); the reason the Safe could not be checked when it could not; null otherwise,
+ * and for any other action, which reads nothing.
+ */
+internal suspend fun ObserveSafe.recoveryRefusal(network: Network, safe: Address, action: SafeTxAction): SafeTxRefusal? {
+    val change = (action as? SafeTxAction.SettingsChange)?.change ?: return null
+    if (change !is SafeSettingsChange.OwnerAdded && change !is SafeSettingsChange.OwnerRemoved &&
+        change !is SafeSettingsChange.ThresholdChanged
+    ) {
+        return null
+    }
+    return when (val check = check(AccountId(network, safe))) {
+        is SafeCheck.Verified -> change.withoutRecovery(check.reading.state.owners.size)
+        is SafeCheck.Refused -> check.refusal
+    }
 }

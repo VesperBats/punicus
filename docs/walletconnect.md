@@ -486,7 +486,9 @@ held: docs/keys-and-signing.md, *Per-app addresses*.
   A domain without one is shown with a warning.
 - Structs this app knows are decoded and shown for what they let someone do:
   an ERC-2612 `Permit` and Permit2's permits as an approval of the spender,
-  for the amount and until the deadline; a GPv2 order as a swap order. An
+  for the amount and until the deadline; a GPv2 order as a swap order; a
+  Safe's `SafeTx` and `SafeMessage` (*A Safe transaction to sign*, below); a
+  Smart Sessions grant (*Session keys*, below). An
   approval moves no funds itself but lets the spender take them, and the
   screen says so.
   - A struct is known only when its type is exactly the standard's, member
@@ -519,6 +521,70 @@ held: docs/keys-and-signing.md, *Per-app addresses*.
   Data with more than 200 values is refused (EIP-1474's -32005), never shown
   cut. A string that holds a character drawing nothing, or a line break, has
   it spelled out (`⟨U+202E⟩`, `⟨LF⟩`).
+
+### A Safe transaction to sign, from Safe{Wallet}
+
+Safe{Wallet} (app.safe.global) connected to Punicus uses an account here as
+one of a Safe's owners. Everything it asks is decoded by default, with no
+setting: an ordinary Safe transaction that is not decoded is itself a reason
+to be suspicious, and the review says so.
+
+- **`SafeTx` typed data** (Safe's own struct, its domain `{chainId,
+  verifyingContract}` from 1.3.0, or `{verifyingContract}` before) is
+  recognised exactly, member by member, and decoded as screen 17 decodes a
+  Safe transaction (`SafeTxAction`): the network's currency or a token sent,
+  an approval, a SwapRouter02 swap, a change of the Safe's owners, threshold,
+  modules, guard or fallback handler, a rejection, an NFT sent
+  (`safeTransferFrom`), a CoW order pre-signed (`setPreSignature`: the order's
+  amounts are not in the transaction, and the review says so), and a batch
+  through one of Safe's MultiSend or MultiSendCallOnly deployments, each of
+  its calls decoded the same way (1.5.0's read a call to the zero address as
+  one of the Safe itself, and so does the decoding). A contract call no hand-written decoder
+  reads is described by a built-in descriptor as the Safe's own call, as on
+  screen 17 (docs/clear-signing.md, A5). The review shows the Safe as the
+  light client reads it (its version, owners, threshold and nonce, whether
+  this transaction is its next one, whether the account asked is an owner),
+  the nonce, the `safeTxHash` in full and any gas and refund terms, and the
+  call traced as the Safe's own at the verified head (a delegate call is not
+  traced), held against what the decoding says.
+- **The Safe refusals hold, whoever proposes the transaction**
+  (`.claude/rules/trust.md`): a delegate call (a batch among them, #57), gas
+  or refund terms, a call of the Safe itself not decoded exactly, a module
+  enabled (on #54), a fallback handler that is not pinned (#63), and, against
+  the Safe's verified owners when it is signed, a change that would leave it
+  an n-of-n without recovery. Such a transaction is shown, decoded, and
+  refused.
+- **`execTransaction`**, sent by an account here to execute a Safe
+  transaction its owners signed (Safe{Wallet}'s Execute; owner or not), is
+  decoded the same way, its nonce being the Safe's when it runs, held to the
+  same refusals and traced as the Safe's own call; the change that needs a
+  recovery module is checked when it is quoted. One whose data is not
+  exactly `execTransaction`'s encoding (a trailing byte, an offset of its
+  own) is refused: the Safe would still run something from it.
+- **`approveHash`** is named as an on-chain approval of the Safe transaction
+  whose hash it carries. What that transaction does is not in the call, and
+  the review says so.
+- **`SafeMessage`** typed data (a message the Safe signs, EIP-1271) is
+  recognised. Safe{Wallet} puts only a hash of the message in it, so the
+  review warns that what the Safe signs cannot be shown.
+
+### Session keys (Smart Sessions)
+
+A dApp may ask an owner to grant a session key on a smart account (an EIP-7702
+account among them) with Rhinestone's Smart Sessions v2: typed data of the
+`MultiChainSession` struct, domain `SmartSessionEmissary`, version `1`. Its
+domain names no chain and no contract, so no descriptor can be bound to code
+for it: it is recognised by its exact struct and read from the data alone.
+The review says, per chain, which account the key may act for, which calls it
+may make, under which policies, until when it can be enabled, whether it may
+sign messages for the account, and who checks the key's signatures. Smart
+Sessions v2 checks its `expires` only when the grant is enabled: once enabled,
+a session has no end of its own, and the review says so for every grant (a
+policy could limit its time; none is read here). Each power without a limit
+is said first, in the error colour: any contract or any function, the
+SudoPolicy, no end, message signing, the generic-policy fallback. It is
+signable, with those warnings; whether to refuse an unlimited grant is the
+owner's to decide.
 
 ### Transactions (`eth_sendTransaction`)
 

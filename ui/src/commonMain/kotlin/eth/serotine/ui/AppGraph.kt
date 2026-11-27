@@ -1259,6 +1259,7 @@ class AppGraph(
             sentTransfers,
             transactionHistory,
             outbox = outbox,
+            observeSafe = observeSafe(),
         ),
         SendDappTransaction(
             dappRequests,
@@ -1285,6 +1286,7 @@ class AppGraph(
         RefuseDappRequest(dappRequests, accounts, networkSettings),
         DescribeKeyStore(keys),
         ObserveSyncPolicy(syncPolicy),
+        observeSafe(),
     )
 
     /** The review of the request [requestKey] names (`topic/id`, as its route carries it): screen D4. */
@@ -1292,9 +1294,11 @@ class AppGraph(
         requestKey,
         observeDappMessages(),
         describeClearSigning(),
-        SignDappMessage(dappRequests, accounts, networkSettings, signer),
+        SignDappMessage(dappRequests, accounts, networkSettings, signer, observeSafe()),
         RefuseDappRequest(dappRequests, accounts, networkSettings),
         DescribeKeyStore(keys),
+        observeSafe(),
+        traceCall,
     )
 
     /** The `wc:` link the platform opened the app with, which the host offers and Connect a dApp takes. */

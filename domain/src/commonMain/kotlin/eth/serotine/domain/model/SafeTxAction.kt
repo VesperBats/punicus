@@ -53,6 +53,31 @@ sealed interface SafeTxAction {
         SafeTxAction
 
     /**
+     * The NFT [tokenId] of the ERC-721 contract at [contract] moved from [from] to [to]: the contract's
+     * `safeTransferFrom(from, to, tokenId)`, called with no ether, as Safe{Wallet} sends an NFT. What the
+     * collection is called is the contract's claim, not read here.
+     */
+    data class NftTransfer(val contract: Address, val from: Address, val to: Address, val tokenId: UInt256) :
+        SafeTxAction
+
+    /**
+     * A CoW Protocol order pre-signed, or its pre-signature withdrawn ([signed] false): GPv2Settlement's
+     * `setPreSignature(orderUid, signed)`, called on its address with no ether, which is how a Safe signs an order.
+     * The order's uid holds only its digest, its [owner] and its [validTo] (unix seconds): what it sells and buys
+     * is not in the transaction, so it is not shown. [orderUid] is the uid's 56 bytes as lower-case hex.
+     */
+    data class CowPreSignature(val orderUid: String, val owner: Address, val validTo: Long, val signed: Boolean) :
+        SafeTxAction
+
+    /**
+     * A batch: a delegate call of one of Safe's MultiSend contracts ([SafeMultiSend], at [multiSend]), which makes
+     * each of [calls] in turn as the Safe, each decoded as a transaction of its own would be (a delegate call
+     * among them, which only MultiSend runs, as a [DelegateCall]). [callOnly] for MultiSendCallOnly, which reverts
+     * an inner delegate call. Still a delegate call, so still refused (`SafeTxRefusal.DelegateCall`, #57).
+     */
+    data class Batch(val multiSend: Address, val callOnly: Boolean, val calls: List<SafeTxAction>) : SafeTxAction
+
+    /**
      * A delegate call of [to]: the Safe runs that contract's code as itself, with its storage,
      * owners and funds, and the code can change any of them. Never decoded further: the data
      * means whatever that code makes of it. [selector] and [dataSize] as for [ContractCall].
@@ -61,26 +86,107 @@ sealed interface SafeTxAction {
 
     companion object {
         /** What [tx], a transaction of the Safe at [safe], does. */
-        fun of(safe: Address, tx: SafeTx): SafeTxAction {
-            val data = tx.data
+        fun of(safe: Address, tx: SafeTx): SafeTxAction = of(safe, tx.to, tx.value, tx.data, tx.operation)
+
+        /**
+         * What a call of the Safe at [safe] does: [operation] on [to] with [value] wei and [data], as a [SafeTx]
+         * carries it, or as `execTransaction` names it (whose nonce is the Safe's at execution).
+         */
+        fun of(safe: Address, to: Address, value: UInt256, data: ByteArray, operation: SafeOperation): SafeTxAction =
+            of(safe, to, value, data, operation, depth = 0)
+
+        // A batch within a batch is read one level down only: deeper, it is a delegate call not decoded.
+        private const val MAX_BATCH_DEPTH = 1
+
+        private fun of(
+            safe: Address,
+            to: Address,
+            value: UInt256,
+            data: ByteArray,
+            operation: SafeOperation,
+            depth: Int,
+        ): SafeTxAction {
             val selector = data.takeIf { it.size >= AbiWords.SELECTOR }?.copyOf(AbiWords.SELECTOR)?.toHex()
-            if (tx.operation == SafeOperation.DELEGATECALL) return DelegateCall(tx.to, selector, data.size)
-            if (data.isEmpty()) {
-                return if (tx.to == safe && tx.value.isZero) Rejection else NativeTransfer(tx.to, tx.value)
+            if (operation == SafeOperation.DELEGATECALL) {
+                if (depth <= MAX_BATCH_DEPTH && SafeMultiSend.isBatcher(to)) {
+                    SafeMultiSend.callsOf(data)?.let { calls ->
+                        val callOnly = to in SafeMultiSend.MULTI_SEND_CALL_ONLY
+                        // 1.5.0 reads the zero address as the Safe itself: decoded as the call it is.
+                        val zeroIsSelf = to in SafeMultiSend.ZERO_IS_SELF
+                        return Batch(
+                            to,
+                            callOnly,
+                            calls.map {
+                                val target = if (zeroIsSelf && it.to == Address.ZERO) safe else it.to
+                                of(safe, target, it.value, it.data, it.operation, depth + 1)
+                            },
+                        )
+                    }
+                }
+                return DelegateCall(to, selector, data.size)
             }
-            if (tx.value.isZero) {
+            if (data.isEmpty()) {
+                return if (to == safe && value.isZero) Rejection else NativeTransfer(to, value)
+            }
+            if (value.isZero) {
                 // A call of the Safe on itself is one of its own functions, or no transfer at all.
-                if (tx.to == safe) {
+                if (to == safe) {
                     settingsChange(data)?.let { return SettingsChange(it) }
                 } else {
-                    Erc20.transferOf(data)?.let { return TokenTransfer(tx.to, it.to, it.amount) }
-                    Erc20.approveOf(data)?.let { return TokenApproval(tx.to, it.spender, it.amount) }
+                    Erc20.transferOf(data)?.let { return TokenTransfer(to, it.to, it.amount) }
+                    Erc20.approveOf(data)?.let { return TokenApproval(to, it.spender, it.amount) }
+                    nftTransfer(to, data)?.let { return it }
+                    if (to == TypedDataMeaning.GPV2_SETTLEMENT) preSignature(data)?.let { return it }
                 }
             }
-            if (tx.to != safe) {
-                SwapRouter02.decode(TransactionCall(tx.to, tx.value, data), safe)?.let { return Swap(it) }
+            if (to != safe) {
+                SwapRouter02.decode(TransactionCall(to, value, data), safe)?.let { return Swap(it) }
             }
-            return ContractCall(tx.to, tx.value, selector, data.size)
+            return ContractCall(to, value, selector, data.size)
+        }
+
+        private val SAFE_TRANSFER_FROM = AbiWords.selector("safeTransferFrom(address,address,uint256)")
+        private val SET_PRE_SIGNATURE = AbiWords.selector("setPreSignature(bytes,bool)")
+
+        // A CoW order's uid: its digest (32 bytes), its owner (20) and its validTo (4).
+        private const val ORDER_UID_SIZE = 56
+
+        /** `safeTransferFrom(from, to, tokenId)` of the contract at [contract], exactly; null for anything else. */
+        private fun nftTransfer(contract: Address, data: ByteArray): NftTransfer? {
+            val (from, to, id) = AbiWords.staticArguments(data, SAFE_TRANSFER_FROM, 3) ?: return null
+            return NftTransfer(
+                contract,
+                AbiWords.address(from) ?: return null,
+                AbiWords.address(to) ?: return null,
+                AbiWords.uint(id),
+            )
+        }
+
+        /**
+         * `setPreSignature(orderUid, signed)`, exactly: the selector, the uid's offset (two words), the bool, the
+         * uid's length (56) and its bytes padded to whole words with zeros. Null for anything else.
+         */
+        private fun preSignature(data: ByteArray): CowPreSignature? {
+            val padded = ORDER_UID_SIZE + AbiWords.padding(ORDER_UID_SIZE)
+            val words = AbiWords.SELECTOR + 3 * AbiWords.WORD
+            if (data.size != words + padded) return null
+            if (!data.copyOf(AbiWords.SELECTOR).contentEquals(SET_PRE_SIGNATURE)) return null
+            val (offset, signed, length) = List(3) {
+                data.copyOfRange(AbiWords.SELECTOR + it * AbiWords.WORD, AbiWords.SELECTOR + (it + 1) * AbiWords.WORD)
+            }
+            if (AbiWords.long(offset) != 2L * AbiWords.WORD || AbiWords.long(length) != ORDER_UID_SIZE.toLong()) {
+                return null
+            }
+            val flag = when (AbiWords.long(signed)) {
+                0L -> false
+                1L -> true
+                else -> return null
+            }
+            if ((words + ORDER_UID_SIZE until data.size).any { data[it] != 0.toByte() }) return null
+            val uid = data.copyOfRange(words, words + ORDER_UID_SIZE)
+            val owner = Address.of("0x" + uid.copyOfRange(32, 52).toHex())
+            val validTo = uid.copyOfRange(52, 56).fold(0L) { acc, byte -> (acc shl 8) or (byte.toLong() and 0xff) }
+            return CowPreSignature(uid.toHex(), owner, validTo, flag)
         }
 
         /** The change of settings [data] makes as a call of the Safe on itself, or null when it makes none of them. */
