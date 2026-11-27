@@ -234,14 +234,17 @@ internal fun safeTxActionItem(
         ),
     )
     is SafeTxAction.TokenCallOn -> {
-        val known = tokens.firstOrNull { it.token.address == action.contract }?.token
-        val text = TokenCallText(action.contract, action.call, known, "the Safe")
+        val known = tokens.firstOrNull { it.token.address == action.contract }
+        val text = TokenCallText(
+            action.contract, action.call, known, action.safe, "the Safe", SafeTxActionItem.APPROVAL, hideAmounts,
+        )
         SafeTxActionItem(
             title = text.title,
-            addresses = text.fields.filter { (_, value) -> value.startsWith("0x") && value.length == 42 }
-                .map { (label, value) -> ActionAddress(label, value) },
+            addresses = text.addresses,
             notes = listOf(text.sentence),
-            warning = text.warning,
+            warning = text.warnings.takeIf { it.isNotEmpty() }?.joinToString(" "),
+            icon = known?.token?.icon,
+            symbol = known?.let { displaySymbol(it.token.symbol) },
         )
     }
     is SafeTxAction.CowPreSignature -> SafeTxActionItem(
@@ -277,7 +280,13 @@ internal fun safeTxActionItem(
                     "(a delegate call), which makes each call below in turn: all of them, or none if one fails.",
             ),
             warning = listOfNotNull(
-                SafeTxActionItem.APPROVAL.takeIf { items.any { it.warning?.contains(SafeTxActionItem.APPROVAL) == true } || action.calls.any { it is SafeTxAction.TokenApproval } },
+                SafeTxActionItem.APPROVAL.takeIf {
+                    items.any { it.warning?.contains(SafeTxActionItem.APPROVAL) == true } ||
+                        action.calls.any {
+                            it is SafeTxAction.TokenApproval ||
+                                (it as? SafeTxAction.TokenCallOn)?.call?.grantsApproval == true
+                        }
+                },
                 // MultiSendCallOnly reverts an inner delegate call: the whole batch then cannot run.
                 (if (action.callOnly) BATCH_CANNOT_RUN else BATCH_INNER_DELEGATE)
                     .takeIf { action.calls.any { it is SafeTxAction.DelegateCall || it is SafeTxAction.Batch } },

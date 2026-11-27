@@ -222,6 +222,37 @@ class DappTransactionViewModelTest {
         assertFalse(DappTransactionViewModel.NOT_DECODED in state.warnings)
     }
 
+    // transferFrom(address,address,uint256) and increaseAllowance(address,uint256).
+    private val selectors = mapOf(
+        "transferFrom(address,address,uint256)" to byteArrayOf(0x23, 0xb8.toByte(), 0x72, 0xdd.toByte()),
+        "increaseAllowance(address,uint256)" to byteArrayOf(0x39, 0x50, 0x93.toByte(), 0x51),
+    )
+
+    private fun call(signature: String, vararg words: ByteArray): ByteArray =
+        selectors.getValue(signature) + words.fold(ByteArray(0)) { a, b -> a + b }
+
+    private fun word(address: Address) = ByteArray(12) + address.hex.removePrefix("0x").chunked(2).map { it.toInt(16).toByte() }
+
+    @Test
+    fun aTransferFromTheAccountItselfIsASendAndFromAnotherAnAllowanceSpent() = runTest {
+        val own = call("transferFrom(address,address,uint256)", word(held.address), word(recipient), UInt256.of(5_000_000).toBytes32())
+        val others = call("transferFrom(address,address,uint256)", word(recipient), word(held.address), UInt256.of(5_000_000).toBytes32())
+        requests.waiting.value = listOf(
+            request(13, DappTransactionRequest(held.address, usdc.address, UInt256.ZERO, own, null)),
+            request(14, DappTransactionRequest(held.address, usdc.address, UInt256.ZERO, others, null)),
+        )
+        assertTrue(viewModel(13).uiState.value.meaning!!.startsWith("Sends 5 USDC of the contract"), "own")
+        assertTrue(viewModel(14).uiState.value.meaning!!.startsWith("Moves 5 USDC of the contract"), "another's")
+    }
+
+    @Test
+    fun anIncreasedAllowanceIsFlaggedOnce() = runTest {
+        val data = call("increaseAllowance(address,uint256)", word(recipient), UInt256.of(1_000_000).toBytes32())
+        requests.waiting.value = listOf(request(15, DappTransactionRequest(held.address, usdc.address, UInt256.ZERO, data, null)))
+        val warnings = viewModel(15).uiState.value.warnings
+        assertEquals(listOf(DappTransactionViewModel.APPROVAL_NOTE), warnings)
+    }
+
     @Test
     fun anApproveHashIsNamedAndWarnedAbout() = runTest {
         val data = "d4d9bdcd".chunked(2).map { it.toInt(16).toByte() }.toByteArray() + ByteArray(32) { 9 }

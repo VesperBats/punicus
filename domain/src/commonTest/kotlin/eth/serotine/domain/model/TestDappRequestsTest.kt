@@ -101,6 +101,17 @@ class TestDappRequestsTest {
         assertEquals(KnownTestRequests.REOWN, KnownTestRequests.typedData(Eip712.encode(mail("1"))!!)?.site)
         val other = mail("1").let { it.copy(message = it.message + ("contents" to TypedValue.Text("Hello, Eve!"))) }
         assertNull(KnownTestRequests.typedData(Eip712.encode(other)!!))
+        // A domain with no chain id is another signature, valid on every chain: not the test.
+        val anyChain = mail("1").let { data ->
+            data.copy(
+                types = data.types + ("EIP712Domain" to data.types.getValue("EIP712Domain").filter { it.name != "chainId" }),
+                domain = data.domain - "chainId",
+            )
+        }
+        assertNull(KnownTestRequests.typedData(Eip712.encode(anyChain)!!))
+        // Nor is a name in another case.
+        val shouting = mail("1").let { it.copy(domain = it.domain + ("name" to TypedValue.Text("ETHER MAIL"))) }
+        assertNull(KnownTestRequests.typedData(Eip712.encode(shouting)!!))
         assertEquals(KnownTestRequests.REOWN, KnownTestRequests.message("My email is john@doe.com - 1793700000000")?.site)
         assertEquals(KnownTestRequests.METAMASK, KnownTestRequests.message("Example `personal_sign` message")?.site)
         assertNull(KnownTestRequests.message("My email is john@doe.com - soon"))

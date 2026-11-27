@@ -283,7 +283,11 @@ part of the decisions:
   struct type (`encodeType`) or a selector, its answer stands, "not decoded"
   included: `TypedDataMeaning` (Permit, Permit2, CoW; a GPv2 order with a
   fee is left undecoded on purpose; Safe's `SafeTx` and `SafeMessage`; Smart
-  Sessions' `MultiChainSession`), ERC-20 `transfer` and `approve`
+  Sessions' `MultiChainSession`), ERC-20 `transfer` and `approve`, the token
+  calls of `TokenCalls` (`transferFrom`, `increaseAllowance`,
+  `setApprovalForAll`, ERC-721's and ERC-1155's `safeTransferFrom`,
+  `safeBatchTransferFrom`; this takes Lido wstETH's `transferFrom` and
+  `increaseAllowance` from its descriptor, the owner's to approve)
   (`Erc20`), the swap reads of SwapRouter02, and Safe's own methods. A
   descriptor covers only the types and selectors none of them claims.
 
@@ -343,7 +347,8 @@ through the existing Myotis adapter; nothing new crosses `io.myotis.api`.
   runs, are decoded and described the same way, the Safe as the sender
   (docs/walletconnect.md, *A Safe transaction to sign*).
 - **Not yet:** a nested call whose selector a hand-written decoder claims
-  (ERC-20 `transfer`, `approve`) is shown raw inside its parent, flagged as
+  (ERC-20 `transfer`, `approve`, and the token calls of `TokenCalls`) is
+  shown raw inside its parent, flagged as
   an approval where it is one, not put in words. No shipped deployment nests
   one today; MultiSend batches would, once #57 is built.
 - **Previews** for every state: described; described with other parameters;

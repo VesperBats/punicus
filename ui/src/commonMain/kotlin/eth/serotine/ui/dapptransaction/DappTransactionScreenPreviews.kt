@@ -636,20 +636,26 @@ private val approvalForAllMeaning = eth.serotine.domain.model.DappCallMeaning.To
     ),
 )
 
+private val approvalForAllData = ("a22cb465000000000000000000000000b85492afc686d5ca405e3cd4f50b05d358c75ede" +
+    "0000000000000000000000000000000000000000000000000000000000000001").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
 private val approvalForAll = payment.copy(
     to = "0xbBa60AA8144579E07c6db64121b0F608AB6F0C89",
     value = "0 ETH (testnet)",
-    meaning = DappTransactionViewModel.meaningLine(approvalForAllMeaning, null),
-    meaningFields = DappTransactionViewModel.meaningFields(approvalForAllMeaning, null),
+    meaning = DappTransactionViewModel.meaningLine(approvalForAllMeaning, null, eth.serotine.domain.model.Address.of(ACCOUNT)),
+    meaningFields = DappTransactionViewModel.meaningFields(approvalForAllMeaning, null, eth.serotine.domain.model.Address.of(ACCOUNT)),
     dataHex = "a22cb465000000000000000000000000b85492afc686d5ca405e3cd4f50b05d358c75ede" +
         "0000000000000000000000000000000000000000000000000000000000000001",
     dataSize = "68 bytes",
-    warnings = listOf(
-        "This hands over the whole collection: the operator may take every NFT of it that this account holds, now " +
-            "and in future. Phishing sites ask for exactly this. Approve only a marketplace you know.",
-        DappTransactionViewModel.testAddressLine(
-            eth.serotine.domain.model.Address.of("0xb85492afc686d5ca405e3cd4f50b05d358c75ede"),
-            eth.serotine.domain.model.KnownTestAddress(eth.serotine.domain.model.KnownTestRequests.METAMASK, "a malicious operator"),
+    // As the ViewModel builds them, so that the screenshot cannot drift from the screen.
+    warnings = DappTransactionViewModel.callWarnings(
+        approvalForAllMeaning,
+        approvalForAllData,
+        null,
+        eth.serotine.domain.model.Address.of(ACCOUNT),
+        mapOf(
+            eth.serotine.domain.model.Address.of("0xb85492afc686d5ca405e3cd4f50b05d358c75ede") to
+                eth.serotine.domain.model.KnownTestAddress(eth.serotine.domain.model.KnownTestRequests.METAMASK, "a malicious operator"),
         ),
     ),
 )

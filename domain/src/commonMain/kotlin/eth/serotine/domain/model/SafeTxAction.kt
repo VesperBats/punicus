@@ -61,10 +61,11 @@ sealed interface SafeTxAction {
         SafeTxAction
 
     /**
-     * Another call of a token contract at [contract], decoded exactly ([TokenCalls]): a `transferFrom`, an
-     * allowance increased, an operator approved for a whole collection, an NFT sent with data, ERC-1155 transfers.
+     * Another call of a token contract at [contract] by the Safe at [safe], decoded exactly ([TokenCalls]): a
+     * `transferFrom`, an allowance increased, an operator approved for a whole collection, an NFT sent with data,
+     * ERC-1155 transfers.
      */
-    data class TokenCallOn(val contract: Address, val call: TokenCall) : SafeTxAction
+    data class TokenCallOn(val contract: Address, val call: TokenCall, val safe: Address) : SafeTxAction
 
     /**
      * A CoW Protocol order pre-signed, or its pre-signature withdrawn ([signed] false): GPv2Settlement's
@@ -145,7 +146,7 @@ sealed interface SafeTxAction {
                         return if (call is TokenCall.NftTransfer && call.dataSize == 0) {
                             NftTransfer(to, call.from, call.to, call.tokenId)
                         } else {
-                            TokenCallOn(to, call)
+                            TokenCallOn(to, call, safe)
                         }
                     }
                     if (to == TypedDataMeaning.GPV2_SETTLEMENT) preSignature(data)?.let { return it }

@@ -25,7 +25,12 @@ object KnownTestRequests {
     const val REOWN = "Reown's sample dApp"
     const val WALLETBEAT = "Walletbeat's test playground"
 
-    private data class Fingerprint(val encodeType: String, val domain: Map<String, String>, val messageHash: String)
+    private data class Fingerprint(
+        val encodeType: String,
+        val domainType: String,
+        val domain: Map<String, String>,
+        val messageHash: String,
+    )
 
     private fun fields(vararg pairs: Pair<String, String>) = pairs.map { (name, type) -> TypedField(name, type) }
     private fun text(value: String) = TypedValue.Text(value)
@@ -123,13 +128,22 @@ object KnownTestRequests {
         WALLETBEAT_TEST to KnownTestRequest(WALLETBEAT, "EIP-712 Test Signature"),
     ).map { (data, known) -> fingerprint(checkNotNull(Eip712.encode(data))) to known }
 
-    /** The domain's members but its chain, which follows the network the test is run on, read as text. */
+    /**
+     * The struct, the domain's type (so its members, `chainId` among them, in order), the domain's values but its
+     * chain id's, which follows the network the test is run on, exactly (an address in any case), and the message.
+     */
     private fun fingerprint(encoded: EncodedTypedData): Fingerprint {
         val data = encoded.data
-        val domain = data.domain.filterKeys { it != "chainId" }.mapValues { (_, value) ->
-            ((value as? TypedValue.Text)?.text ?: value.toString()).lowercase()
+        val domain = data.domain.filterKeys { it != "chainId" }.mapValues { (name, value) ->
+            val text = (value as? TypedValue.Text)?.text ?: value.toString()
+            if (name == "verifyingContract") text.lowercase() else text
         }
-        return Fingerprint(Eip712.encodeType(data.types, data.primaryType), domain, encoded.messageHash)
+        return Fingerprint(
+            Eip712.encodeType(data.types, data.primaryType),
+            Eip712.encodeType(data.types, Eip712.DOMAIN_TYPE),
+            domain,
+            encoded.messageHash,
+        )
     }
 
     /** The test [encoded] is, when its struct, its domain (on any chain) and its message are exactly one's. */
