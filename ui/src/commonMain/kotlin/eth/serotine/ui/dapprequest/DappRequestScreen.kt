@@ -233,7 +233,7 @@ fun DappRequestScreen(
             }
             Text(
                 // Only where a description was asked for did Punicus read anything: the verifying contract's code.
-                if (state.safeTx != null) {
+                if (state.safeTx != null || state.moduleLine != null) {
                     "Signing sends no transaction. Punicus read the Safe from the chain, with the light client, to " +
                         "show it here."
                 } else if (state.describing || state.described != null || state.notDescribed != null) {
@@ -304,6 +304,9 @@ private fun TypedDataSections(state: DappRequestUiState, onRetrace: () -> Unit) 
         // An unlimited power is said first, before the fields that spell it out.
         state.meaningWarnings.forEach {
             Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error)
+        }
+        state.moduleLine?.let {
+            Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodyMedium)
         }
         state.meaningFields.forEach { Field(it) }
         state.safeTx?.let { DappSafeTxBlock(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), onRetrace) }

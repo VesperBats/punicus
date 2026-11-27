@@ -284,6 +284,66 @@ class DappSafeDecodingTest {
         assertEquals(DappTransactionQuoting.SafeTxRefused(SafeTxRefusal.NeedsRecoveryModule(3)), quote(exec.id))
     }
 
+    @Test
+    fun aModuleEnabledThroughAGnosisPayDelayIsRefusedAndTheCardLimitIsNot() {
+        val delay = Address.of("0x22bdfd8d6238f034a0937fa2eec3ddbd4b039fe3")
+        fun moduleTx(to: Address, data: ByteArray) = TypedData(
+            types = mapOf(
+                Eip712.DOMAIN_TYPE to listOf(TypedField("chainId", "uint256"), TypedField("verifyingContract", "address")),
+                "ModuleTx" to listOf(TypedField("data", "bytes"), TypedField("salt", "bytes32")),
+            ),
+            primaryType = "ModuleTx",
+            domain = mapOf("chainId" to TypedValue.Number("1"), "verifyingContract" to TypedValue.Text(delay.hex)),
+            message = mapOf(
+                "data" to TypedValue.Text(
+                    "0x" + ("468721a7".hexToBytes() + word(to) + ByteArray(32) + UInt256.of(128).toBytes32() + ByteArray(32) +
+                        UInt256.of(data.size.toLong()).toBytes32() + data + ByteArray((32 - data.size % 32) % 32)).toHex(),
+                ),
+                "salt" to TypedValue.Text("0x" + "00".repeat(32)),
+            ),
+        )
+        // Not on Gnosis Chain: refused, whatever it asks.
+        val enable = review(typed(moduleTx(safe, "610b5925".hexToBytes() + word(recipient))))
+        assertEquals(DappSignRefusal.MODULE_TX_REFUSED, enable.refusal)
+        assertEquals(eth.serotine.domain.usecase.ModuleTxRefusal.OtherNetwork, enable.moduleTxRefusal)
+        val limit = "a8ec43ee".hexToBytes() + eth.serotine.domain.model.RolesAllowance.SPENDING_ALLOWANCE_KEY.hexToBytes() +
+            UInt256.of(8).toBytes32() + UInt256.of(8).toBytes32() + UInt256.of(8).toBytes32() +
+            UInt256.of(86_400).toBytes32() + ByteArray(32)
+        fun tx(to: Address, data: ByteArray) =
+            eth.serotine.domain.model.ModuleTransaction.of(Eip712.encode(moduleTx(to, data))!!)!!
+        // On Gnosis Chain: the card's limit only, never a call of the Delay or the Safe.
+        assertNull(tx(recipient, limit).cardLimitRefusal(Network.GNOSIS, safe))
+        assertEquals(ModuleTxRefusal.NotCardLimit, tx(delay, limit).cardLimitRefusal(Network.GNOSIS, safe))
+        assertEquals(ModuleTxRefusal.NotCardLimit, tx(safe, limit).cardLimitRefusal(Network.GNOSIS, safe))
+        assertEquals(
+            ModuleTxRefusal.NotCardLimit,
+            tx(safe, "610b5925".hexToBytes() + word(recipient)).cardLimitRefusal(Network.GNOSIS, safe),
+        )
+        // A byte too many is no call read: refused.
+        assertEquals(ModuleTxRefusal.NotCardLimit, tx(recipient, limit + byteArrayOf(0)).cardLimitRefusal(Network.GNOSIS))
+    }
+
+    @Test
+    fun aCardLimitIsSignedOnlyThroughAVerifiedDelayOfTheWalletsAccountWithTheSignerAMember() = kotlinx.coroutines.test.runTest {
+        val delay = Address.of("0x22bdfd8d6238f034a0937fa2eec3ddbd4b039fe3")
+        fun found(generation: eth.serotine.domain.repository.DelayGeneration, members: List<Address>) =
+            GnosisPayReading.Found(
+                eth.serotine.domain.repository.DelayModule(delay, generation, 180, 1800, 0, 0, members),
+                100, emptyList(), emptyList(), safeModules = emptyList(),
+            )
+        val readings = kotlinx.coroutines.flow.MutableStateFlow<Map<AccountId, GnosisPayReading>>(
+            mapOf(AccountId(Network.GNOSIS, safe) to found(eth.serotine.domain.repository.DelayGeneration.CURRENT, listOf(owner.address))),
+        )
+        val check = GnosisPayDelayCheck { readings }
+        assertIs<GnosisPayDelay.Verified>(check.check(delay, owner.address))
+        assertEquals(GnosisPayDelay.Refused(ModuleTxRefusal.NotMember), check.check(delay, recipient))
+        assertEquals(GnosisPayDelay.Refused(ModuleTxRefusal.NotAccountsDelay), check.check(recipient, owner.address))
+        readings.value = mapOf(
+            AccountId(Network.GNOSIS, safe) to found(eth.serotine.domain.repository.DelayGeneration.RETIRED, listOf(owner.address)),
+        )
+        assertEquals(GnosisPayDelay.Refused(ModuleTxRefusal.RetiredDelay), check.check(delay, owner.address))
+    }
+
     private fun word(address: Address) = ByteArray(12) + address.hex.removePrefix("0x").hexToBytes()
 
     /** The session of the second screenshot: any call, the SudoPolicy, no expiry, on chain 1. */

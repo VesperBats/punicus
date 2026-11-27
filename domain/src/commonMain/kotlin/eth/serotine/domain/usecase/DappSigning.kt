@@ -122,6 +122,12 @@ enum class DappSignRefusal(val error: DappRequestError) {
     TYPED_TOO_LARGE(DappRequestError.LIMIT_EXCEEDED),
 
     /**
+     * A transaction signed for a Delay's relayer that is not Gnosis Pay's card limit through a verified Delay of an
+     * account in this wallet ([DappMessageReview.moduleTxRefusal] says why; owner's request, 2026-11-27).
+     */
+    MODULE_TX_REFUSED(DappRequestError.UNAUTHORIZED),
+
+    /**
      * A Safe transaction, to sign as typed data or to execute, that this wallet signs, approves and executes none
      * of, whoever proposes it ([DappMessageReview.safeTxRefusal] says which: a delegate call, gas terms, a module
      * enabled, a fallback handler not pinned, a call of the Safe itself not decoded exactly, an n-of-n without
@@ -165,6 +171,7 @@ enum class DappSignWarning {
      * its meaning to code: it is read from the struct.
      */
     SESSION_KEY_GRANT,
+
 
     /**
      * A per-app address signing in to a site that is neither the one it was made for nor one the user linked to it
@@ -229,6 +236,8 @@ data class DappMessageReview(
     val perApp: PerAppSigner? = null,
     /** Why the Safe transaction it asks to sign or execute is refused, when [refusal] is [DappSignRefusal.SAFE_TX_REFUSED]. */
     val safeTxRefusal: SafeTxRefusal? = null,
+    /** Why a relayed Delay call is refused, when [refusal] is [DappSignRefusal.MODULE_TX_REFUSED]. */
+    val moduleTxRefusal: ModuleTxRefusal? = null,
     /** The public wallet-testing site's request it is, byte for byte, when it is one ([KnownTestRequests]). */
     val knownTest: KnownTestRequest? = null,
     /** The addresses it names that a testing site uses as bad actors in its demos ([KnownTestRequests.address]). */
@@ -275,7 +284,9 @@ fun reviewDappMessage(
             val meaning = TypedDataMeaning.of(ask.typed)
             val named = tokensOf(meaning)
             // A Safe transaction may name any token, at any depth of a batch: every built-in one is at hand.
-            val pinned = tokens.filter { meaning is TypedDataMeaning.SafeTransaction || it.address in named }
+            val pinned = tokens.filter {
+                meaning is TypedDataMeaning.SafeTransaction || meaning is TypedDataMeaning.ModuleTx || it.address in named
+            }
                 .associateBy { it.address }
             ask.account to DappSignContent.Typed(ask.typed, meaning, pinned)
         }
@@ -291,8 +302,13 @@ fun reviewDappMessage(
     val account = accounts?.firstOrNull { it.network == network && it.address == signer }
     // The Safe refusals hold whoever proposes the transaction (CLAUDE.md, *Trust*): checked once the account may sign.
     val safeTxRefusal = request.network?.let { safeTxRefusalOf(content, it) }
+    // A Delay's relayed call is signed only for the card's limit (owner's request, 2026-11-27).
+    val moduleTxRefusal = request.network?.let { network ->
+        ((content as? DappSignContent.Typed)?.meaning as? TypedDataMeaning.ModuleTx)?.tx?.cardLimitRefusal(network)
+    }
     val refusal = accountRefusal(request, signer, accounts, account, enabled, content is DappSignContent.Transaction)
         ?: DappSignRefusal.SAFE_TX_REFUSED.takeIf { safeTxRefusal != null }
+        ?: DappSignRefusal.MODULE_TX_REFUSED.takeIf { moduleTxRefusal != null }
         ?: when (content) {
         // The account's refusal is null only for a network the session holds.
         is DappSignContent.Message -> signInRefusal(content.signIn, signer, checkNotNull(network), nowSeconds)
@@ -329,6 +345,7 @@ fun reviewDappMessage(
                     null -> add(DappSignWarning.NOT_DECODED)
                     is TypedDataMeaning.SafeMessage -> add(DappSignWarning.SAFE_MESSAGE_HASH_ONLY)
                     is TypedDataMeaning.SmartSession -> add(DappSignWarning.SESSION_KEY_GRANT)
+
                     is TypedDataMeaning.SafeTransaction ->
                         if (SafeTxAction.of(meaning.safe, meaning.tx).notDecoded) add(DappSignWarning.SAFE_CALL_NOT_DECODED)
                     else -> Unit
@@ -345,6 +362,7 @@ fun reviewDappMessage(
     return DappMessageReview(
         request, signer, account, content, refusal, warnings, perApp,
         safeTxRefusal = safeTxRefusal.takeIf { refusal == DappSignRefusal.SAFE_TX_REFUSED },
+        moduleTxRefusal = moduleTxRefusal.takeIf { refusal == DappSignRefusal.MODULE_TX_REFUSED },
         knownTest = when (content) {
             is DappSignContent.Message -> content.message.text?.let(KnownTestRequests::message)
             is DappSignContent.Typed -> KnownTestRequests.typedData(content.typed)
@@ -376,9 +394,12 @@ private fun namedAddresses(transaction: DappTransactionRequest): List<Address> =
  * is refused, as screen 17 refuses one ([safeCallRefusal]); null when it is none, or may be signed.
  */
 private fun safeTxRefusalOf(content: DappSignContent, network: Network): SafeTxRefusal? = when (content) {
-    is DappSignContent.Typed -> (content.meaning as? TypedDataMeaning.SafeTransaction)?.let { meaning ->
-        val tx = meaning.tx
-        safeCallRefusal(network, meaning.safe, tx.to, SafeTxAction.of(meaning.safe, tx), tx.operation, SafeTxGasTerms.of(tx))
+    is DappSignContent.Typed -> when (val meaning = content.meaning) {
+        is TypedDataMeaning.SafeTransaction -> {
+            val tx = meaning.tx
+            safeCallRefusal(network, meaning.safe, tx.to, SafeTxAction.of(meaning.safe, tx), tx.operation, SafeTxGasTerms.of(tx))
+        }
+        else -> null
     }
     is DappSignContent.Transaction -> when (val meaning = content.transaction.meaning) {
         is DappCallMeaning.SafeExecution -> {
@@ -459,8 +480,9 @@ private fun tokensOf(meaning: TypedDataMeaning?): Set<Address> = when (meaning) 
     is TypedDataMeaning.Permit2Allowance -> setOf(meaning.token)
     is TypedDataMeaning.Permit2Transfer -> setOf(meaning.token)
     is TypedDataMeaning.CowOrder -> setOf(meaning.sellToken, meaning.buyToken)
-    is TypedDataMeaning.SafeTransaction, is TypedDataMeaning.SafeMessage, is TypedDataMeaning.SmartSession, null ->
-        emptySet()
+    is TypedDataMeaning.SafeTransaction, is TypedDataMeaning.SafeMessage, is TypedDataMeaning.SmartSession,
+    is TypedDataMeaning.ModuleTx, null,
+    -> emptySet()
 }
 
 /**
@@ -559,6 +581,9 @@ sealed interface DappMessageSigning {
      */
     data class SafeTxRefused(val refusal: SafeTxRefusal) : DappMessageSigning
 
+    /** Not signed: the Delay it names was not verified as a Gnosis Pay account's in this wallet, or [refusal] says why. */
+    data class ModuleTxRefused(val refusal: ModuleTxRefusal) : DappMessageSigning
+
     /** The dApp stopped waiting: nothing is answered but that it expired. */
     data object Expired : DappMessageSigning
 
@@ -584,6 +609,11 @@ class SignDappMessage(
     /** The Safes a `SafeTx` to sign is of, checked for the change that needs a recovery module. */
     private val observeSafe: ObserveSafe,
     private val clock: () -> Long = ::epochSecondsNow,
+    /**
+     * The Gnosis Pay accounts' Delays, which a relayed card limit change must be one of, verified; null where none is
+     * read, and no such change is signed.
+     */
+    private val gnosisPayDelays: GnosisPayDelayCheck? = null,
 ) {
     suspend operator fun invoke(id: DappRequestId, unlock: Unlock): DappMessageSigning {
         val request = requests.observe().first().firstOrNull { it.id == id } ?: return DappMessageSigning.Gone
@@ -598,6 +628,15 @@ class SignDappMessage(
             val action = SafeTxAction.of(safeTx.safe, safeTx.tx)
             observeSafe.recoveryRefusal(checkNotNull(request.network), safeTx.safe, action)
                 ?.let { return DappMessageSigning.SafeTxRefused(it) }
+        }
+        val moduleTx = ((review.content as? DappSignContent.Typed)?.meaning as? TypedDataMeaning.ModuleTx)?.tx
+        if (moduleTx != null) {
+            when (val delay = gnosisPayDelays?.check(moduleTx.modifier, review.address)) {
+                null -> return DappMessageSigning.ModuleTxRefused(ModuleTxRefusal.NotAccountsDelay)
+                is GnosisPayDelay.Refused -> return DappMessageSigning.ModuleTxRefused(delay.refusal)
+                is GnosisPayDelay.Verified -> moduleTx.cardLimitRefusal(checkNotNull(request.network), delay.safe.address)
+                    ?.let { return DappMessageSigning.ModuleTxRefused(it) }
+            }
         }
         if (request.expiresAtSeconds <= clock()) return DappMessageSigning.Expired
         val signature = when (val signing = signer.sign(review.address, digest, unlock)) {

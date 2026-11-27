@@ -508,6 +508,34 @@ class DappRequestViewModelTest {
     }
 
     @Test
+    fun aCardLimitOffGnosisChainIsRefused() = runTest {
+        fun word(hex: String) = hex.padStart(64, '0')
+        val eight = "1b1ae4d6e2ef5000000"
+        val inner = "a8ec43ee" + "fe687fc128d1915040376d20ccb1bf40d838ddd82bf9b0ba3da683cc2a251623" + word(eight) +
+            word(eight) + word(eight) + word("15180") + word("0")
+        val data = "468721a7" + word("203d2e0d726978cbe9e82e6fb277220bf9cba5c2") + word("0") + word("80") + word("0") +
+            word((inner.length / 2).toString(16)) + inner.padEnd((inner.length + 63) / 64 * 64, '0')
+        val typed = TypedData(
+            types = mapOf(
+                "EIP712Domain" to listOf(TypedField("chainId", "uint256"), TypedField("verifyingContract", "address")),
+                "ModuleTx" to listOf(TypedField("data", "bytes"), TypedField("salt", "bytes32")),
+            ),
+            primaryType = "ModuleTx",
+            domain = mapOf(
+                "chainId" to TypedValue.Number("11155111"),
+                "verifyingContract" to TypedValue.Text("0x22bdfd8d6238f034a0937fa2eec3ddbd4b039fe3"),
+            ),
+            message = mapOf("data" to TypedValue.Text("0x$data"), "salt" to TypedValue.Text("0x" + "00".repeat(32))),
+        )
+        requests.waiting.value = listOf(request(13).copy(ask = DappAsk.SignTypedData(held.address, Eip712.encode(typed)!!)))
+        val state = viewModel(13).uiState.value
+        // Gnosis Pay runs on Gnosis Chain alone: elsewhere it is read, and refused.
+        assertEquals("Module transaction to sign", state.title)
+        assertEquals("It is not for Gnosis Chain, where Gnosis Pay runs.", state.refusal)
+        assertEquals(DappRequestViewModel.moduleTxRefusalText(eth.serotine.domain.usecase.ModuleTxRefusal.NotAccountsDelay), state.moduleLine)
+    }
+
+    @Test
     fun aKnownTestSignatureIsNamedAsOne() = runTest {
         val walletbeat = "This is a safe test message for educational purposes only. It does not authorize any " +
             "transactions or actions."

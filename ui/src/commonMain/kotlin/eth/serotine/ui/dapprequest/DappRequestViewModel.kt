@@ -35,6 +35,9 @@ import eth.serotine.domain.model.SafeTxGasTerms
 import eth.serotine.domain.model.TypedDataMeaning
 import eth.serotine.domain.usecase.ObserveSafe
 import eth.serotine.domain.usecase.SafeReading
+import eth.serotine.domain.usecase.GnosisPayDelay
+import eth.serotine.domain.usecase.GnosisPayDelayCheck
+import eth.serotine.domain.usecase.ModuleTxRefusal
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -127,6 +130,12 @@ data class DappRequestUiState(
      * what it does, its nonce and hash (docs/walletconnect.md, *A Safe transaction to sign*); null for other data.
      */
     val safeTx: DappSafeTxSection? = null,
+    /**
+     * For a module transaction, what the light client says of the contract it names: the Delay of a Gnosis Pay
+     * account in this wallet, with its cooldown and whether the signer is a member, or why it is not; null for other
+     * data.
+     */
+    val moduleLine: String? = null,
     /** The typed data's domain: who verifies the signature, on which chain. */
     val domainFields: List<SignInField> = emptyList(),
     /** Every field of the typed data's message. */
@@ -181,6 +190,8 @@ class DappRequestViewModel(
     private val observeSafe: ObserveSafe,
     /** A `SafeTx`'s call traced as the Safe's own at the verified head (docs/clear-signing.md, *Phase B*). */
     private val traceCall: TraceCall,
+    /** The wallet's Gnosis Pay Delays, which a module transaction's contract is checked against; null: none read. */
+    private val gnosisPayDelays: GnosisPayDelayCheck? = null,
     private val clock: () -> Long = ::epochSecondsNow,
     private val formatTime: (Long) -> String = ::formatDateTime,
     /** Where a trace is put in words: its size is the dApp's to choose, so never on the main thread. */
@@ -324,7 +335,27 @@ class DappRequestViewModel(
             observeSafe(AccountId(at.first, safe)).map<SafeReading, SafeReading?> { it }.onStart { emit(null) }
         }
 
-    val uiState: StateFlow<DappRequestUiState> = combine(shownReview, local, ticks, described, safeReading) { shown, local, _, described, reading ->
+    /** The contract a module transaction names, as checked against the wallet's Gnosis Pay accounts; null for other data. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val moduleDelay: Flow<GnosisPayDelay?> = shownReview
+        .map { shown ->
+            val review = shown?.first ?: return@map null
+            ((review.content as? DappSignContent.Typed)?.meaning as? TypedDataMeaning.ModuleTx)?.tx?.modifier
+                ?.let { it to review.address }
+        }
+        .distinctUntilChanged()
+        .flatMapLatest { at ->
+            val check = gnosisPayDelays
+            when {
+                at == null -> flowOf(null)
+                check == null -> flowOf(GnosisPayDelay.Refused(ModuleTxRefusal.NotAccountsDelay))
+                else -> check(at.first, at.second)
+            }
+        }
+
+    private val withModule = combine(safeReading, moduleDelay, ::Pair)
+
+    val uiState: StateFlow<DappRequestUiState> = combine(shownReview, local, ticks, described, withModule) { shown, local, _, described, (reading, module) ->
         val (review, plain) = shown
             // No longer waiting: the screen leaves, unless an answer that did not take says why first.
             ?: return@combine if (local.notice != null && !local.done) {
@@ -332,7 +363,16 @@ class DappRequestViewModel(
             } else {
                 DappRequestUiState(loading = false, gone = true, done = local.done)
             }
+        val moduleTx = (review.content as? DappSignContent.Typed)?.meaning is TypedDataMeaning.ModuleTx
         val base = withDescription(withSafe(plain, review, reading, described.third), review, described.first, described.second)
+            .let { state ->
+                if (!moduleTx) return@let state
+                // A Delay the light client did not verify as the wallet's Gnosis Pay account's greys Sign out, saying why.
+                state.copy(
+                    moduleLine = delayLine(module),
+                    refusal = state.refusal ?: (module as? GnosisPayDelay.Refused)?.let { moduleTxRefusalText(it.refusal) },
+                )
+            }
         base.copy(
             waits = waitsLine(review.request.expiresAtSeconds - clock()),
             unlock = local.unlock,
@@ -357,6 +397,7 @@ class DappRequestViewModel(
             refusal = review.refusal?.let { refusal ->
                 review.safeTxRefusal?.takeIf { refusal == DappSignRefusal.SAFE_TX_REFUSED }
                     ?.let { safeTxRefusalText(it, review.request.network ?: Network.ETHEREUM) }
+                    ?: review.moduleTxRefusal?.takeIf { refusal == DappSignRefusal.MODULE_TX_REFUSED }?.let(::moduleTxRefusalText)
                     ?: refusalLine(refusal)
             },
         )
@@ -567,6 +608,8 @@ class DappRequestViewModel(
         )
         is DappMessageSigning.Refused ->
             local.copy(busy = false, explaining = RequestExplanation("Cannot be signed", refusalLine(signing.refusal)))
+        is DappMessageSigning.ModuleTxRefused ->
+            local.copy(busy = false, explaining = RequestExplanation("Cannot be signed", moduleTxRefusalText(signing.refusal)))
         is DappMessageSigning.SafeTxRefused -> local.copy(
             busy = false,
             explaining = RequestExplanation("Cannot be signed", safeTxRefusalText(signing.refusal, Network.ETHEREUM)),
@@ -632,6 +675,37 @@ class DappRequestViewModel(
         fun knownTestLine(known: eth.serotine.domain.model.KnownTestRequest): String =
             "A known test request: ${known.site}'s \"${known.name}\", byte for byte. Any site can send the same, so " +
                 "this says what it is, not who is asking."
+
+        /** What the light client found of a module transaction's contract ([delay]; null while it is read). */
+        fun delayLine(delay: GnosisPayDelay?): String = when (delay) {
+            null -> "Checking the contract against your Gnosis Pay accounts with the light client…"
+            is GnosisPayDelay.Verified -> "The Delay module of your Gnosis Pay account ${Eip55.format(delay.safe.address)}, " +
+                "verified by the light client: a queued call waits ${minutes(delay.delay.cooldownSeconds)}, then may be " +
+                "executed for ${if (delay.delay.expirationSeconds == 0L) "ever" else minutes(delay.delay.expirationSeconds)}. " +
+                "The account asked is one of its members."
+            is GnosisPayDelay.Refused -> moduleTxRefusalText(delay.refusal)
+        }
+
+        private fun minutes(seconds: Long): String = when {
+            seconds < 120 -> "$seconds seconds"
+            seconds < 7_200 -> "${seconds / 60} minutes"
+            else -> "${seconds / 3_600} hours"
+        }
+
+        /** Why a module transaction is not signed here. */
+        fun moduleTxRefusalText(refusal: ModuleTxRefusal): String = when (refusal) {
+            ModuleTxRefusal.OtherNetwork -> "It is not for Gnosis Chain, where Gnosis Pay runs."
+            ModuleTxRefusal.NotCardLimit -> "Through a Delay's relayer Punicus signs only the Gnosis Pay card's limit; " +
+                "this asks for something else."
+            ModuleTxRefusal.NotAccountsDelay -> "The contract it names is not the Delay of a Gnosis Pay account in " +
+                "this wallet, as the light client reads them. Add the Gnosis Pay account to sign it."
+            ModuleTxRefusal.RetiredDelay -> "It is the Delay of a Gnosis Pay account, on the retired mastercopy, " +
+                "which Punicus never signs through."
+            ModuleTxRefusal.NotMember -> "The account asked is not a member of that Delay, so its signature would " +
+                "not count."
+            is ModuleTxRefusal.Unverified -> refusal.reason?.let { eth.serotine.ui.components.unavailableText(it) }
+                ?: "The Delay could not be verified this time: try again."
+        }
 
         /** Typed data that grants an approval, flagged whatever its description says. */
         const val TYPED_APPROVAL = "Signing this grants an approval: the spender may then take the tokens without " +
@@ -708,6 +782,7 @@ class DappRequestViewModel(
             DappSignRefusal.TX_TO_ZERO_ADDRESS ->
                 "It sends to the zero address: nobody holds its key, so what it sends would be lost for good."
             DappSignRefusal.SAFE_TX_REFUSED -> "Punicus does not sign, approve or execute this Safe transaction."
+            DappSignRefusal.MODULE_TX_REFUSED -> "Punicus signs only a Gnosis Pay card limit change this way."
             DappSignRefusal.TYPED_TOO_LARGE ->
                 "The data has more fields than this screen can show, and Punicus signs nothing it cannot show in full."
         }

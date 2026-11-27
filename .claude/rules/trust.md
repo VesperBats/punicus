@@ -260,7 +260,8 @@ carve-out of 2026-11-10 and its rulings of 2026-11-11 and 2026-11-13 on #761;
     entry for good, since nothing skips an entry that never expires, and
     hold every entry behind it back. Transfers through such a Delay stay
     allowed.
-  - Nothing else beyond plain transfers and these two calls is ever queued.
+  - Nothing else beyond plain transfers and these two calls is ever queued,
+    but for the card limit signed for Gnosis Pay's relayer (below).
     *Enabling a Safe module is refused* (modules on the Safe itself) stands
     unchanged.
 - **The current mastercopy only.** `0x22d9…1ef0`, deployed after the exploit
@@ -277,6 +278,16 @@ carve-out of 2026-11-10 and its rulings of 2026-11-11 and 2026-11-13 on #761;
   account, and it queues nothing.
 - **No relayer.** The Delay's signed, relayed path needs an off-chain
   service and is not used.
+- **One exception: Gnosis Pay's card limit, signed for its relayer**
+  (owner's request, 2026-11-27: "This is a Gnosispay extend daily card limit
+  to 8000€. Can you add support for this?"). Asked by a dApp over
+  WalletConnect, a member's `ModuleTx` signature for the Delay is signed only
+  when its call is exactly the Roles `setAllowance` under
+  `SPENDING_ALLOWANCE`, a plain call of neither the Delay nor the Safe, on
+  Gnosis Chain, and the Delay is verified as the current mastercopy's, of a
+  Gnosis Pay account in this wallet, with the signer one of its members.
+  Punicus contacts no relayer: the dApp sends it. Every other `ModuleTx` is
+  shown, decoded, and refused.
 - **The card's allowance is never a cap.** The Delay's cooldown and
   expiration are the limits. The Roles allowance binds Gnosis Pay's spender,
   not the member; it is shown, display-only, once where today's accounts keep

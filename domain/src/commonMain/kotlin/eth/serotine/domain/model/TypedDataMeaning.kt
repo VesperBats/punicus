@@ -80,6 +80,12 @@ sealed interface TypedDataMeaning {
      */
     data class SmartSession(val grants: SmartSessionGrants) : TypedDataMeaning
 
+    /**
+     * A transaction a Zodiac modifier's member signs for a relayer to send ([ModuleTransaction]): Gnosis Pay's app
+     * asks a Delay member for one to change the card's limit, or anything else the Safe may do through the Delay.
+     */
+    data class ModuleTx(val tx: ModuleTransaction) : TypedDataMeaning
+
     companion object {
         /** Permit2's address, the same on every chain. */
         val PERMIT2: Address = Address.of("0x000000000022d473030f116ddee9f6b43ac78ba3")
@@ -110,7 +116,7 @@ sealed interface TypedDataMeaning {
         val CLAIMED_TYPES: Set<String>
             get() = setOf(
                 PERMIT, PERMIT_SINGLE, PERMIT_TRANSFER, GPv2Signing.ORDER_TYPE, SAFE_TX, SAFE_MESSAGE,
-                SmartSessionGrants.MULTI_CHAIN_SESSION_TYPE,
+                SmartSessionGrants.MULTI_CHAIN_SESSION_TYPE, ModuleTransaction.TYPE,
             )
 
         /** What [encoded] lets someone do, or null when its struct is not one this app knows. */
@@ -193,6 +199,7 @@ sealed interface TypedDataMeaning {
                     )
                 }
                 SmartSessionGrants.MULTI_CHAIN_SESSION_TYPE -> SmartSessionGrants.of(encoded)?.let(::SmartSession)
+                ModuleTransaction.TYPE -> ModuleTransaction.of(encoded)?.let(::ModuleTx)
                 SAFE_MESSAGE -> {
                     if (!safeDomain(data)) return null
                     SafeMessage(verifier ?: return null, Eip712.bytesOf(message.getValue("message")).toHex())

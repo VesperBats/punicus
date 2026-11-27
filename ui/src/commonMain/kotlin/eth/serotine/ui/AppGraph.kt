@@ -156,6 +156,7 @@ import eth.serotine.domain.usecase.ObserveEnabledNetworks
 import eth.serotine.domain.usecase.ObserveEnsNames
 import eth.serotine.domain.usecase.ObserveGnosisPay
 import eth.serotine.domain.usecase.ObserveGnosisPays
+import eth.serotine.domain.usecase.GnosisPayDelayCheck
 import eth.serotine.domain.usecase.ObserveHeavyDownloads
 import eth.serotine.domain.usecase.ObserveInterfaceMode
 import eth.serotine.domain.usecase.ObserveKeptSafe
@@ -1294,12 +1295,22 @@ class AppGraph(
         requestKey,
         observeDappMessages(),
         describeClearSigning(),
-        SignDappMessage(dappRequests, accounts, networkSettings, signer, observeSafe()),
+        SignDappMessage(
+            dappRequests, accounts, networkSettings, signer, observeSafe(),
+            gnosisPayDelays = gnosisPayDelays(),
+        ),
         RefuseDappRequest(dappRequests, accounts, networkSettings),
         DescribeKeyStore(keys),
         observeSafe(),
         traceCall,
+        gnosisPayDelays(),
     )
+
+    /** The wallet's Gnosis Pay accounts' Delays, verified, which a relayed card limit change must be one of. */
+    private fun gnosisPayDelays(): GnosisPayDelayCheck {
+        val pays = ObserveGnosisPays(accounts, observeGnosisPay())
+        return GnosisPayDelayCheck { pays() }
+    }
 
     /** The `wc:` link the platform opened the app with, which the host offers and Connect a dApp takes. */
     val incomingDappLink: IncomingDappLink = IncomingDappLink()
