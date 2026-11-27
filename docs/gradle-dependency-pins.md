@@ -134,7 +134,11 @@ hosts add theirs back, and restore the `<configuration>` block from `HEAD`.
   (`<trusted-artifacts>` in the metadata, as in Myotis), so the jars Android
   Studio and IntelliJ download on a sync do not fail it. They are never on a
   build classpath. Gradle drops XML comments when it rewrites the file, so the
-  explanation lives here.
+  explanation lives here. The Gradle distribution's own source zip, which the
+  IDE fetches for the build scripts (`gradle:gradle:<v>`,
+  `gradle-<v>-src.zip`), is pinned by hash instead, from
+  `https://services.gradle.org/distributions/gradle-<v>-src.zip.sha256`: a
+  Gradle bump adds its entry by hand, with the wrapper's checksum.
 - **The wrapper** is regenerated with the checksum, or the `wrapper` task
   drops it: `./gradlew wrapper --gradle-version <v> --gradle-distribution-sha256-sum <sha>`.
 - **PGP signatures are not checked**, only SHA-256, as in Myotis. Gradle's
