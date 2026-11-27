@@ -13,7 +13,7 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 | [Account detail](#account-detail) | `account-detail/` | 74 |
 | [Accounts](#accounts) | `accounts/` | 42 |
 | [Accounts on a tablet](#accounts-tablet) | `accounts-tablet/` | 5 |
-| [Activity detail](#activity-detail) | `activity-detail/` | 15 |
+| [Activity detail](#activity-detail) | `activity-detail/` | 20 |
 | [Add on networks (dialog)](#add-on-networks-dialog) | `add-on-networks-dialog/` | 5 |
 | [Add token](#add-token) | `add-token/` | 11 |
 | [Connected dApps](#connections) | `connections/` | 6 |
@@ -215,7 +215,7 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 <a name="activity-detail"></a>
 ## Activity detail
 
-`activity-detail/`, 15 states: `sent`, `sent-dark`, `unconfirmed`, `unlisted-token`, `safe-event`, `loading`, `unavailable`, `unfamiliar-sender`, `hidden`, `hidden-dark`, `eth-logged`, `index-row`, `index-row-dark`, `index-row-refused`, `index-row-try-again`
+`activity-detail/`, 20 states: `sent`, `sent-dark`, `unconfirmed`, `unlisted-token`, `safe-event`, `loading`, `unavailable`, `unfamiliar-sender`, `hidden`, `hidden-dark`, `eth-logged`, `index-row`, `index-row-dark`, `index-row-refused`, `index-row-try-again`, `describe-offer`, `describe-working`, `described`, `described-dark`, `describe-failed`
 
 <a href="activity-detail/sent.png"><img src="activity-detail/sent.png" width="206" alt="sent"></a>
 <a href="activity-detail/sent-dark.png"><img src="activity-detail/sent-dark.png" width="206" alt="sent-dark"></a>
@@ -232,6 +232,11 @@ If the folder grows too much, there are two levers, both the owner's. Deleting t
 <a href="activity-detail/index-row-dark.png"><img src="activity-detail/index-row-dark.png" width="206" alt="index-row-dark"></a>
 <a href="activity-detail/index-row-refused.png"><img src="activity-detail/index-row-refused.png" width="206" alt="index-row-refused"></a>
 <a href="activity-detail/index-row-try-again.png"><img src="activity-detail/index-row-try-again.png" width="206" alt="index-row-try-again"></a>
+<a href="activity-detail/describe-offer.png"><img src="activity-detail/describe-offer.png" width="206" alt="describe-offer"></a>
+<a href="activity-detail/describe-working.png"><img src="activity-detail/describe-working.png" width="206" alt="describe-working"></a>
+<a href="activity-detail/described.png"><img src="activity-detail/described.png" width="206" alt="described"></a>
+<a href="activity-detail/described-dark.png"><img src="activity-detail/described-dark.png" width="206" alt="described-dark"></a>
+<a href="activity-detail/describe-failed.png"><img src="activity-detail/describe-failed.png" width="206" alt="describe-failed"></a>
 
 <a name="add-on-networks-dialog"></a>
 ## Add on networks (dialog)
