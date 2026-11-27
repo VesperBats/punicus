@@ -488,7 +488,10 @@ held: docs/keys-and-signing.md, *Per-app addresses*.
   an ERC-2612 `Permit` and Permit2's permits as an approval of the spender,
   for the amount and until the deadline; a GPv2 order as a swap order; a
   Safe's `SafeTx` and `SafeMessage` (*A Safe transaction to sign*, below); a
-  Smart Sessions grant (*Session keys*, below). An
+  Smart Sessions grant (*Session keys*, below); a Zodiac modifier's
+  `ModuleTx`, as Gnosis Pay's app asks a Delay member to sign its card limit
+  change for its relayer (docs/gnosis-pay.md, *A change signed for Gnosis
+  Pay's app*). An
   approval moves no funds itself but lets the spender take them, and the
   screen says so.
   - A struct is known only when its type is exactly the standard's, member

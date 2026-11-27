@@ -262,6 +262,33 @@ member's EIP-712 signature appended to the calldata, which Gnosis Pay's
 relayer sends and pays for. That needs an off-chain service, which the data
 sources rule leaves out. Punicus only sends the held key's own transactions.
 
+### A change signed for Gnosis Pay's app
+
+(Owner's request, 2026-11-27: "This is a Gnosispay extend daily card limit to
+8000€. Can you add support for this?")
+
+Gnosis Pay's app, connected over WalletConnect, asks a member of the Delay to
+sign the relayed path's EIP-712 message for its own relayer: account-kit's
+`typedDataForModifierTransaction`, `ModuleTx(bytes data,bytes32 salt)` with
+the domain `{chainId, verifyingContract}` the Delay. Punicus contacts no
+relayer: it signs, on D5, what the dApp asked, and the dApp sends it.
+
+- **Read exactly** (`ModuleTransaction`): `data` as the Delay's
+  `execTransactionFromModule(to, value, data, operation)`, the call the Safe
+  makes once the queued entry is executed after the cooldown.
+- **The card's limit** (account-kit's `populateLimitEnqueue`): a Roles v2
+  `setAllowance(key, balance, maxRefill, refill, period, timestamp)` under
+  `keccak256("SPENDING_ALLOWANCE")`, sent to the account's bouncer. Shown as
+  the card's spending limit per period, in the card's currency at 18
+  decimals (EURe, GBPe), every value raw beside it. The bouncer's address is
+  account-kit's prediction and is not checked here.
+- **Anything else** the Safe would do through the Delay is decoded as a Safe
+  transaction is, its settings read as the Safe's own, and held to the Safe
+  refusals (`.claude/rules/trust.md`): a module enabled through the Delay is
+  refused. A call not read here is warned about as unusual: Gnosis Pay's
+  own changes are read. The data does not name the Safe, so a call of it
+  that is no settings change cannot be told from another contract's.
+
 **The card's allowance is never a cap.** The chain does not hold the member
 to the Roles allowance, so neither does Punicus. Showing the allowance was
 asked for. It waits until where today's accounts keep it is known: on the

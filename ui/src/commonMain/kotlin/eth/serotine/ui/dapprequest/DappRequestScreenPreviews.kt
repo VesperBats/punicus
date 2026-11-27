@@ -627,6 +627,64 @@ private fun DappRequestSessionGrantPreview() = DappRequestPreview(sessionGrant)
 @Composable
 private fun DappRequestSessionGrantDarkPreview() = DappRequestPreview(sessionGrant, darkTheme = true)
 
+// Gnosis Pay's app asks a Delay member to sign its card limit change, for its relayer: 8,000 a day.
+private val cardLimit: DappRequestUiState = run {
+    val delay = "0x22bdfd8d6238f034a0937fa2eec3ddbd4b039fe3"
+    fun word(hex: String) = hex.removePrefix("0x").padStart(64, '0')
+    val eight = "1b1ae4d6e2ef5000000"
+    val inner = "a8ec43ee" + "fe687fc128d1915040376d20ccb1bf40d838ddd82bf9b0ba3da683cc2a251623" + word(eight) + word(eight) +
+        word(eight) + word("15180") + word("0")
+    val data = "468721a7" + word("203d2e0d726978cbe9e82e6fb277220bf9cba5c2") + word("0") + word("80") + word("0") +
+        word((inner.length / 2).toString(16)) + inner.padEnd((inner.length + 63) / 64 * 64, '0')
+    val typed = eth.serotine.domain.model.TypedData(
+        types = mapOf(
+            "EIP712Domain" to listOf(
+                eth.serotine.domain.model.TypedField("chainId", "uint256"),
+                eth.serotine.domain.model.TypedField("verifyingContract", "address"),
+            ),
+            "ModuleTx" to listOf(
+                eth.serotine.domain.model.TypedField("data", "bytes"),
+                eth.serotine.domain.model.TypedField("salt", "bytes32"),
+            ),
+        ),
+        primaryType = "ModuleTx",
+        domain = mapOf(
+            "chainId" to eth.serotine.domain.model.TypedValue.Number("100"),
+            "verifyingContract" to eth.serotine.domain.model.TypedValue.Text(delay),
+        ),
+        message = mapOf(
+            "data" to eth.serotine.domain.model.TypedValue.Text("0x$data"),
+            "salt" to eth.serotine.domain.model.TypedValue.Text("0x" + "00".repeat(28) + "1a21ea68"),
+        ),
+    )
+    val encoded = eth.serotine.domain.model.Eip712.encode(typed)!!
+    val text = TypedDataText(
+        eth.serotine.domain.usecase.DappSignContent.Typed(
+            encoded, eth.serotine.domain.model.TypedDataMeaning.of(encoded), emptyMap(),
+        ),
+    ) { "Nov 27, 2026, 9:00 PM" }
+    signIn.copy(
+        title = text.title,
+        name = "Gnosis Pay",
+        url = "https://app.example.org",
+        signIn = emptyList(),
+        typed = true,
+        network = "On Gnosis Chain, real funds",
+        meaning = text.meaning,
+        meaningFields = text.meaningFields,
+        domainFields = text.domainFields,
+        typedRows = text.rows,
+    )
+}
+
+@Preview
+@Composable
+private fun DappRequestCardLimitPreview() = DappRequestPreview(cardLimit)
+
+@Preview
+@Composable
+private fun DappRequestCardLimitDarkPreview() = DappRequestPreview(cardLimit, darkTheme = true)
+
 private fun host(name: String) = (AppHost.parse(name) as AppHostResult.Host).host
 
 /** Every preview above, which DappRequestScreenPreviewsTest renders: a new preview goes in here too. */
@@ -658,6 +716,8 @@ internal val dappRequestScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("per-app") { DappRequestPerAppPreview() },
     ScreenPreview("per-app-other-site") { DappRequestPerAppOtherSitePreview() },
     ScreenPreview("per-app-linked") { DappRequestPerAppLinkedPreview() },
+    ScreenPreview("card-limit") { DappRequestCardLimitPreview() },
+    ScreenPreview("card-limit-dark") { DappRequestCardLimitDarkPreview() },
     ScreenPreview("safe-transfer") { DappRequestSafeTransferPreview() },
     ScreenPreview("safe-transfer-dark") { DappRequestSafeTransferDarkPreview() },
     ScreenPreview("safe-batch") { DappRequestSafeBatchPreview() },

@@ -167,6 +167,13 @@ enum class DappSignWarning {
     SESSION_KEY_GRANT,
 
     /**
+     * A transaction signed for a Zodiac modifier (a Gnosis Pay account's Delay) whose call is not decoded here:
+     * Gnosis Pay's own changes are, so this one is unusual. The Safe it is for is not named in the data, so a call of
+     * it that is no settings change cannot be told apart from another contract's.
+     */
+    MODULE_CALL_NOT_DECODED,
+
+    /**
      * A per-app address signing in to a site that is neither the one it was made for nor one the user linked to it
      * (issue #252; docs/walletconnect.md, *Signing in*): signing in links the two sites ([DappMessageReview.perApp]).
      */
@@ -275,7 +282,9 @@ fun reviewDappMessage(
             val meaning = TypedDataMeaning.of(ask.typed)
             val named = tokensOf(meaning)
             // A Safe transaction may name any token, at any depth of a batch: every built-in one is at hand.
-            val pinned = tokens.filter { meaning is TypedDataMeaning.SafeTransaction || it.address in named }
+            val pinned = tokens.filter {
+                meaning is TypedDataMeaning.SafeTransaction || meaning is TypedDataMeaning.ModuleTx || it.address in named
+            }
                 .associateBy { it.address }
             ask.account to DappSignContent.Typed(ask.typed, meaning, pinned)
         }
@@ -329,6 +338,12 @@ fun reviewDappMessage(
                     null -> add(DappSignWarning.NOT_DECODED)
                     is TypedDataMeaning.SafeMessage -> add(DappSignWarning.SAFE_MESSAGE_HASH_ONLY)
                     is TypedDataMeaning.SmartSession -> add(DappSignWarning.SESSION_KEY_GRANT)
+                    is TypedDataMeaning.ModuleTx -> {
+                        val call = meaning.tx.call
+                        if (call == null || (call.allowance == null && call.action.notDecoded)) {
+                            add(DappSignWarning.MODULE_CALL_NOT_DECODED)
+                        }
+                    }
                     is TypedDataMeaning.SafeTransaction ->
                         if (SafeTxAction.of(meaning.safe, meaning.tx).notDecoded) add(DappSignWarning.SAFE_CALL_NOT_DECODED)
                     else -> Unit
@@ -376,9 +391,18 @@ private fun namedAddresses(transaction: DappTransactionRequest): List<Address> =
  * is refused, as screen 17 refuses one ([safeCallRefusal]); null when it is none, or may be signed.
  */
 private fun safeTxRefusalOf(content: DappSignContent, network: Network): SafeTxRefusal? = when (content) {
-    is DappSignContent.Typed -> (content.meaning as? TypedDataMeaning.SafeTransaction)?.let { meaning ->
-        val tx = meaning.tx
-        safeCallRefusal(network, meaning.safe, tx.to, SafeTxAction.of(meaning.safe, tx), tx.operation, SafeTxGasTerms.of(tx))
+    is DappSignContent.Typed -> when (val meaning = content.meaning) {
+        is TypedDataMeaning.SafeTransaction -> {
+            val tx = meaning.tx
+            safeCallRefusal(network, meaning.safe, tx.to, SafeTxAction.of(meaning.safe, tx), tx.operation, SafeTxGasTerms.of(tx))
+        }
+        // What the Safe would do through the modifier is held to the Safe refusals, its settings read as its own.
+        is TypedDataMeaning.ModuleTx -> meaning.tx.call?.let { call ->
+            val action = call.action
+            val safe = if (action is SafeTxAction.SettingsChange) call.to else Address.ZERO
+            safeCallRefusal(network, safe, call.to, action, call.operation, null)
+        }
+        else -> null
     }
     is DappSignContent.Transaction -> when (val meaning = content.transaction.meaning) {
         is DappCallMeaning.SafeExecution -> {
@@ -459,8 +483,9 @@ private fun tokensOf(meaning: TypedDataMeaning?): Set<Address> = when (meaning) 
     is TypedDataMeaning.Permit2Allowance -> setOf(meaning.token)
     is TypedDataMeaning.Permit2Transfer -> setOf(meaning.token)
     is TypedDataMeaning.CowOrder -> setOf(meaning.sellToken, meaning.buyToken)
-    is TypedDataMeaning.SafeTransaction, is TypedDataMeaning.SafeMessage, is TypedDataMeaning.SmartSession, null ->
-        emptySet()
+    is TypedDataMeaning.SafeTransaction, is TypedDataMeaning.SafeMessage, is TypedDataMeaning.SmartSession,
+    is TypedDataMeaning.ModuleTx, null,
+    -> emptySet()
 }
 
 /**

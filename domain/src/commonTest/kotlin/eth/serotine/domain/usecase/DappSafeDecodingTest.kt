@@ -284,6 +284,33 @@ class DappSafeDecodingTest {
         assertEquals(DappTransactionQuoting.SafeTxRefused(SafeTxRefusal.NeedsRecoveryModule(3)), quote(exec.id))
     }
 
+    @Test
+    fun aModuleEnabledThroughAGnosisPayDelayIsRefusedAndTheCardLimitIsNot() {
+        val delay = Address.of("0x22bdfd8d6238f034a0937fa2eec3ddbd4b039fe3")
+        fun moduleTx(to: Address, data: ByteArray) = TypedData(
+            types = mapOf(
+                Eip712.DOMAIN_TYPE to listOf(TypedField("chainId", "uint256"), TypedField("verifyingContract", "address")),
+                "ModuleTx" to listOf(TypedField("data", "bytes"), TypedField("salt", "bytes32")),
+            ),
+            primaryType = "ModuleTx",
+            domain = mapOf("chainId" to TypedValue.Number("1"), "verifyingContract" to TypedValue.Text(delay.hex)),
+            message = mapOf(
+                "data" to TypedValue.Text(
+                    "0x" + ("468721a7".hexToBytes() + word(to) + ByteArray(32) + UInt256.of(128).toBytes32() + ByteArray(32) +
+                        UInt256.of(data.size.toLong()).toBytes32() + data + ByteArray((32 - data.size % 32) % 32)).toHex(),
+                ),
+                "salt" to TypedValue.Text("0x" + "00".repeat(32)),
+            ),
+        )
+        val enable = review(typed(moduleTx(safe, "610b5925".hexToBytes() + word(recipient))))
+        assertEquals(SafeTxRefusal.ModuleEnabled(recipient), enable.safeTxRefusal)
+        val limit = "a8ec43ee".hexToBytes() + ByteArray(32) + UInt256.of(8).toBytes32() + UInt256.of(8).toBytes32() +
+            UInt256.of(8).toBytes32() + UInt256.of(86_400).toBytes32() + ByteArray(32)
+        val card = review(typed(moduleTx(recipient, limit)))
+        assertNull(card.refusal)
+        assertTrue(card.warnings.isEmpty(), "${card.warnings}")
+    }
+
     private fun word(address: Address) = ByteArray(12) + address.hex.removePrefix("0x").hexToBytes()
 
     /** The session of the second screenshot: any call, the SudoPolicy, no expiry, on chain 1. */

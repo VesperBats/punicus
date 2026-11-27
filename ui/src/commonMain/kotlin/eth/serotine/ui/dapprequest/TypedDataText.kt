@@ -5,6 +5,7 @@ import eth.serotine.domain.model.Eip712
 import eth.serotine.domain.model.Network
 import eth.serotine.domain.model.ShownText
 import eth.serotine.domain.model.SmartSessionGrants
+import eth.serotine.domain.model.ModuleTransaction
 import eth.serotine.domain.model.Token
 import eth.serotine.domain.model.TypedData
 import eth.serotine.domain.model.TypedDataMeaning
@@ -35,6 +36,8 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
             is TypedDataMeaning.SafeTransaction -> "Safe transaction to sign"
             is TypedDataMeaning.SafeMessage -> "Safe message to sign"
             is TypedDataMeaning.SmartSession -> "Session key to grant"
+            is TypedDataMeaning.ModuleTx ->
+                if ((content.meaning as TypedDataMeaning.ModuleTx).tx.call?.allowance?.spending == true) "Card limit change to sign" else "Delay transaction to sign"
             null -> "Data to sign"
         }
 
@@ -47,6 +50,7 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
             is TypedDataMeaning.SafeTransaction -> "Sign a Safe transaction"
             is TypedDataMeaning.SafeMessage -> "Sign a message for a Safe"
             is TypedDataMeaning.SmartSession -> "Grant a session key"
+            is TypedDataMeaning.ModuleTx -> "Sign a transaction for a Delay module"
             null -> "Sign a dApp's data"
         }
 
@@ -76,6 +80,7 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
                 "its owners: once enough of them have, contracts take it as the Safe's own signature (EIP-1271). " +
                 "The request holds only a hash of the message, so Punicus cannot show what the Safe signs."
             is TypedDataMeaning.SmartSession -> sessionMeaning(meaning)
+            is TypedDataMeaning.ModuleTx -> moduleMeaning(meaning.tx)
             null -> null
         }
 
@@ -125,6 +130,7 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
                 SignInField("Partly filled", if (meaning.partiallyFillable) "Allowed" else "No: all at once or not"),
             )
             is TypedDataMeaning.SafeTransaction -> emptyList()
+            is TypedDataMeaning.ModuleTx -> moduleFields(meaning.tx)
             is TypedDataMeaning.SafeMessage -> listOf(
                 SignInField("Safe", Eip55.format(meaning.safe)),
                 SignInField("Message (its hash)", "0x${meaning.message}"),
@@ -165,6 +171,86 @@ internal class TypedDataText(private val content: DappSignContent.Typed, private
             }
             null -> emptyList()
         }
+
+    private fun moduleMeaning(tx: ModuleTransaction): String {
+        val delay = short(tx.modifier)
+        val queued = "Signed, Gnosis Pay's relayer (or anyone) can hand it to the Delay module $delay as your " +
+            "call: the Delay queues it, and once its cooldown has passed anyone can execute it on the account's Safe."
+        val call = tx.call ?: return "A call for the Delay module $delay that Punicus does not read. $queued"
+        val allowance = call.allowance
+        if (allowance != null && allowance.spending) {
+            val per = period(allowance.period)
+            val full = allowance.balance == allowance.refill && allowance.maxRefill == allowance.refill
+            return "Sets the Gnosis Pay card's spending limit to ${cardAmount(allowance.refill)} $per, in the card's " +
+                "currency (EURe or GBPe)" + (if (full) "" else ", with ${cardAmount(allowance.balance)} spendable now " +
+                "and at most ${cardAmount(allowance.maxRefill)} held") + ". $queued"
+        }
+        if (allowance != null) {
+            return "Sets a Roles allowance (key 0x${allowance.key.take(8)}…) to ${allowance.refill.toDecimal()} units " +
+                "${period(allowance.period)}. $queued"
+        }
+        val item = eth.serotine.ui.components.safeTxActionItem(
+            call.action, null, content.tokens.values.map { eth.serotine.ui.components.DecodingToken(it) }, network(),
+        )
+        return "The Safe would: ${item.title}. $queued"
+    }
+
+    private fun moduleFields(tx: ModuleTransaction): List<SignInField> = buildList {
+        add(SignInField("Delay module", Eip55.format(tx.modifier)))
+        val call = tx.call
+        if (call == null) {
+            add(SignInField("Call", "${tx.dataSize} bytes, not read here"))
+        } else {
+            val allowance = call.allowance
+            add(
+                SignInField(
+                    "Called by the Safe",
+                    Eip55.format(call.to) + if (allowance?.spending == true) {
+                        " (the account's Roles bouncer, as Gnosis Pay's app sets it up; not checked here)"
+                    } else {
+                        ""
+                    },
+                ),
+            )
+            if (allowance != null) {
+                add(SignInField("Allowance", if (allowance.spending) "The card's spending limit (SPENDING_ALLOWANCE)" else "0x${allowance.key}"))
+                add(SignInField("Refill", "${amountOf(allowance.refill, allowance.spending)} every ${period(allowance.period).removePrefix("a ").removePrefix("every ")}"))
+                add(SignInField("Most it holds", amountOf(allowance.maxRefill, allowance.spending)))
+                add(SignInField("Spendable now", amountOf(allowance.balance, allowance.spending)))
+                add(SignInField("Counted from", if (allowance.timestamp == 0L) "Now" else formatTime(allowance.timestamp)))
+            } else {
+                val item = eth.serotine.ui.components.safeTxActionItem(
+                    call.action, null, content.tokens.values.map { eth.serotine.ui.components.DecodingToken(it) }, network(),
+                )
+                add(SignInField("The Safe would", item.title))
+                item.addresses.forEach { add(SignInField(it.what, it.address)) }
+                if (call.operation == eth.serotine.domain.model.SafeOperation.DELEGATECALL) add(SignInField("Operation", "Delegate call"))
+            }
+        }
+        add(SignInField("Salt", "0x${tx.salt}"))
+    }
+
+    /** The network the typed data names, or Gnosis Chain, where Gnosis Pay is. */
+    private fun network(): Network = (data.domain["chainId"]?.let(Eip712::unsignedOf)?.toLongOrNull())
+        ?.let(Network::ofChainId) ?: Network.GNOSIS
+
+    /** [value] of the card's currency, counted at 18 decimals as EURe and GBPe are, its raw form beside it. */
+    private fun cardAmount(value: UInt256): String {
+        val (whole, fraction) = value.formatUnits(18).split('.').let { it[0] to it.getOrNull(1) }
+        val grouped = whole.reversed().chunked(3).joinToString(",").reversed()
+        return grouped + (fraction?.let { ".$it" } ?: "")
+    }
+
+    private fun amountOf(value: UInt256, card: Boolean): String =
+        if (card) "${cardAmount(value)} (18 decimals, as EURe and GBPe count; raw ${value.toDecimal()})"
+        else value.toDecimal()
+
+    private fun period(seconds: Long): String = when (seconds) {
+        86_400L -> "a day"
+        604_800L -> "a week"
+        3_600L -> "an hour"
+        else -> "every $seconds seconds"
+    }
 
     private fun sessionMeaning(meaning: TypedDataMeaning.SmartSession): String {
         val grants = meaning.grants.grants

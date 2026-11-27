@@ -667,6 +667,10 @@ class DappRequestViewModel(
                 "Punicus does not decode this Safe transaction's call. Ordinary Safe{Wallet} transactions (a " +
                     "payment, a token or NFT sent, an approval, a change of owners, a batch of them) are decoded, " +
                     "so this one is unusual: check it with whoever proposed it before you sign."
+            DappSignWarning.MODULE_CALL_NOT_DECODED ->
+                "Punicus does not read the call this asks the Delay module to queue. Gnosis Pay's own changes (the " +
+                    "card's limit) are read, so this one is unusual: once queued and executed, the Safe makes it as " +
+                    "its own. Sign it only if you know what it does."
             DappSignWarning.SESSION_KEY_GRANT ->
                 "This grants a session key power over a smart account: whoever holds the key may act for it " +
                     "without asking you again. Its data names no contract, so Punicus cannot check it against " +
