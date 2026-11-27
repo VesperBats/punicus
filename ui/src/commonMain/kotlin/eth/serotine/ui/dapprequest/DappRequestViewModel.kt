@@ -141,6 +141,11 @@ data class DappRequestUiState(
     /** Why a built-in descriptor that covers the verifying contract does not describe it, where that says more. */
     val notDescribed: String? = null,
     val warnings: List<String> = emptyList(),
+    /**
+     * The public wallet-testing site's request it is, byte for byte, in a line ("A known test request: …"); null
+     * when it is none (docs/walletconnect.md, *Testing with public test dApps*).
+     */
+    val knownTest: String? = null,
     val refusal: String? = null,
     /** How long the dApp waits for an answer. */
     val waits: String = "",
@@ -348,6 +353,7 @@ class DappRequestViewModel(
             network = onLine(review.request.network),
             perAppLine = review.perApp?.let(::perAppLine),
             warnings = review.warnings.sorted().map { warningLine(it, review.perApp) },
+            knownTest = review.knownTest?.let(::knownTestLine),
             refusal = review.refusal?.let { refusal ->
                 review.safeTxRefusal?.takeIf { refusal == DappSignRefusal.SAFE_TX_REFUSED }
                     ?.let { safeTxRefusalText(it, review.request.network ?: Network.ETHEREUM) }
@@ -619,6 +625,13 @@ class DappRequestViewModel(
                 "$made. Signing in to ${linked.name}, linked by you to ${signer.site.name}."
             }
         }
+
+        /**
+         * A known test request in a line: which site's test it is, and that its content alone says so, not who asks.
+         */
+        fun knownTestLine(known: eth.serotine.domain.model.KnownTestRequest): String =
+            "A known test request: ${known.site}'s \"${known.name}\", byte for byte. Any site can send the same, so " +
+                "this says what it is, not who is asking."
 
         /** Typed data that grants an approval, flagged whatever its description says. */
         const val TYPED_APPROVAL = "Signing this grants an approval: the spender may then take the tokens without " +

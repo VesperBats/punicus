@@ -11,6 +11,10 @@ import eth.serotine.domain.model.Eip712
 import eth.serotine.domain.model.UInt256
 import eth.serotine.domain.model.TypedDataMeaning
 import eth.serotine.domain.model.SafeTxAction
+import eth.serotine.domain.model.KnownTestAddress
+import eth.serotine.domain.model.KnownTestRequest
+import eth.serotine.domain.model.KnownTestRequests
+import eth.serotine.domain.model.TokenCall
 import eth.serotine.domain.model.SafeSettingsChange
 import eth.serotine.domain.model.SafeTxGasTerms
 import eth.serotine.domain.model.Token
@@ -225,6 +229,10 @@ data class DappMessageReview(
     val perApp: PerAppSigner? = null,
     /** Why the Safe transaction it asks to sign or execute is refused, when [refusal] is [DappSignRefusal.SAFE_TX_REFUSED]. */
     val safeTxRefusal: SafeTxRefusal? = null,
+    /** The public wallet-testing site's request it is, byte for byte, when it is one ([KnownTestRequests]). */
+    val knownTest: KnownTestRequest? = null,
+    /** The addresses it names that a testing site uses as bad actors in its demos ([KnownTestRequests.address]). */
+    val testAddresses: Map<Address, KnownTestAddress> = emptyMap(),
 ) {
     /** The message, when [content] is one. */
     val message: PersonalMessage? get() = (content as? DappSignContent.Message)?.message
@@ -337,8 +345,31 @@ fun reviewDappMessage(
     return DappMessageReview(
         request, signer, account, content, refusal, warnings, perApp,
         safeTxRefusal = safeTxRefusal.takeIf { refusal == DappSignRefusal.SAFE_TX_REFUSED },
+        knownTest = when (content) {
+            is DappSignContent.Message -> content.message.text?.let(KnownTestRequests::message)
+            is DappSignContent.Typed -> KnownTestRequests.typedData(content.typed)
+            is DappSignContent.Transaction -> null
+        },
+        testAddresses = (content as? DappSignContent.Transaction)?.transaction?.let(::namedAddresses).orEmpty()
+            .mapNotNull { address -> KnownTestRequests.address(address)?.let { address to it } }.toMap(),
     )
 }
+
+/** The addresses [transaction] sends to or names as a recipient, a spender or an operator. */
+private fun namedAddresses(transaction: DappTransactionRequest): List<Address> = listOf(transaction.to) +
+    when (val meaning = transaction.meaning) {
+        is DappCallMeaning.TokenTransfer -> listOf(meaning.recipient)
+        is DappCallMeaning.TokenApproval -> listOf(meaning.spender)
+        is DappCallMeaning.TokenCallOn -> when (val call = meaning.call) {
+            is TokenCall.TransferFrom -> listOf(call.to)
+            is TokenCall.AllowanceIncrease -> listOf(call.spender)
+            is TokenCall.ApprovalForAll -> listOf(call.operator)
+            is TokenCall.NftTransfer -> listOf(call.to)
+            is TokenCall.MultiTokenTransfer -> listOf(call.to)
+            is TokenCall.MultiTokenBatchTransfer -> listOf(call.to)
+        }
+        else -> emptyList()
+    }
 
 /**
  * Why the Safe transaction [content] asks to sign (`SafeTx` typed data) or to execute (`execTransaction`) on [network]

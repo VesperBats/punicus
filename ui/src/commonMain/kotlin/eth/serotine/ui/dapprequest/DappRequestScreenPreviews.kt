@@ -566,6 +566,19 @@ private val safeGasTerms = safeTxState(
 
 private fun String.hexBytes(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
+private val knownTest = notDecoded.copy(
+    knownTest = DappRequestViewModel.knownTestLine(
+        eth.serotine.domain.model.KnownTestRequest(
+            eth.serotine.domain.model.KnownTestRequests.METAMASK,
+            "Sign Typed Data V4 (Ether Mail, EIP-712's example)",
+        ),
+    ),
+)
+
+@Preview
+@Composable
+private fun DappRequestKnownTestPreview() = DappRequestPreview(knownTest)
+
 @Preview
 @Composable
 private fun DappRequestSafeNftPreview() = DappRequestPreview(safeNft)
@@ -653,6 +666,7 @@ internal val dappRequestScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("session-grant") { DappRequestSessionGrantPreview() },
     ScreenPreview("session-grant-dark") { DappRequestSessionGrantDarkPreview() },
     ScreenPreview("safe-nft") { DappRequestSafeNftPreview() },
+    ScreenPreview("known-test") { DappRequestKnownTestPreview() },
     ScreenPreview("safe-cow-order") { DappRequestSafeCowOrderPreview() },
     ScreenPreview("safe-not-owner") { DappRequestSafeNotOwnerPreview() },
     ScreenPreview("not-a-safe") { DappRequestNotASafePreview() },

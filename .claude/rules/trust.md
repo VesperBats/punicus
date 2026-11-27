@@ -434,8 +434,10 @@ docs/clear-signing.md, *What a clear-signed line proves*.)
     block").
   - The hand-written decoders take precedence by type: where one claims a
     struct type or a selector (`TypedDataMeaning`'s Permit, Permit2 and CoW
-    order, `Erc20`'s `transfer` and `approve`, SwapRouter02's swaps, Safe's
-    own methods), its answer stands, "not decoded" included.
+    order, Safe's `SafeTx` and `SafeMessage`, Smart Sessions' grant,
+    `Erc20`'s `transfer` and `approve`, the token calls of `TokenCalls`,
+    SwapRouter02's swaps, Safe's own methods), its answer stands, "not
+    decoded" included.
 
 ## A verified trace: what the call does at the head
 

@@ -233,6 +233,20 @@ internal fun safeTxActionItem(
             "The collection's own safeTransferFrom (ERC-721): its name is the contract's claim and not shown here.",
         ),
     )
+    is SafeTxAction.TokenCallOn -> {
+        val known = tokens.firstOrNull { it.token.address == action.contract }
+        val text = TokenCallText(
+            action.contract, action.call, known, action.safe, "the Safe", SafeTxActionItem.APPROVAL, hideAmounts,
+        )
+        SafeTxActionItem(
+            title = text.title,
+            addresses = text.addresses,
+            notes = listOf(text.sentence),
+            warning = text.warnings.takeIf { it.isNotEmpty() }?.joinToString(" "),
+            icon = known?.token?.icon,
+            symbol = known?.let { displaySymbol(it.token.symbol) },
+        )
+    }
     is SafeTxAction.CowPreSignature -> SafeTxActionItem(
         title = if (action.signed) "Sign a CoW Protocol order" else "Cancel a CoW Protocol order's signature",
         addresses = listOf(
@@ -266,7 +280,13 @@ internal fun safeTxActionItem(
                     "(a delegate call), which makes each call below in turn: all of them, or none if one fails.",
             ),
             warning = listOfNotNull(
-                SafeTxActionItem.APPROVAL.takeIf { items.any { it.warning?.contains(SafeTxActionItem.APPROVAL) == true } || action.calls.any { it is SafeTxAction.TokenApproval } },
+                SafeTxActionItem.APPROVAL.takeIf {
+                    items.any { it.warning?.contains(SafeTxActionItem.APPROVAL) == true } ||
+                        action.calls.any {
+                            it is SafeTxAction.TokenApproval ||
+                                (it as? SafeTxAction.TokenCallOn)?.call?.grantsApproval == true
+                        }
+                },
                 // MultiSendCallOnly reverts an inner delegate call: the whole batch then cannot run.
                 (if (action.callOnly) BATCH_CANNOT_RUN else BATCH_INNER_DELEGATE)
                     .takeIf { action.calls.any { it is SafeTxAction.DelegateCall || it is SafeTxAction.Batch } },

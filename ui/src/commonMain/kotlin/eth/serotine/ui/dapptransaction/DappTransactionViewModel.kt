@@ -76,6 +76,9 @@ import eth.serotine.ui.components.notSignedText
 import eth.serotine.ui.components.safeTxRefusalText
 import eth.serotine.ui.components.DappSafeTxSection
 import eth.serotine.ui.components.dappSafeTxSection
+import eth.serotine.ui.components.TokenCallText
+import eth.serotine.ui.components.DecodingToken
+import eth.serotine.domain.model.Address
 import eth.serotine.domain.model.SafeTxAction
 import eth.serotine.domain.usecase.ObserveSafe
 import eth.serotine.domain.usecase.SafeReading
@@ -879,8 +882,8 @@ class DappTransactionViewModel(
                 ?.let { AccountId(it, review.address) },
             to = Eip55.format(transaction.to),
             value = ether(transaction.value, review.request.network),
-            meaning = meaningLine(transaction.meaning, token),
-            meaningFields = meaningFields(transaction.meaning, token),
+            meaning = meaningLine(transaction.meaning, token, review.address),
+            meaningFields = meaningFields(transaction.meaning, token, review.address),
             dataHex = transaction.dataHex.takeIf { it.isNotEmpty() },
             dataSize = DappRequestViewModel.bytesLine(transaction.dataSize),
             warnings = buildList {
@@ -889,10 +892,8 @@ class DappTransactionViewModel(
                 review.warnings.filterNot { it == DappSignWarning.NOT_DECODED }.sorted()
                     .forEach { add(DappRequestViewModel.warningLine(it, review.perApp)) }
                 if (transaction.meaning is DappCallMeaning.SafeApproveHash) add(APPROVE_HASH_WARNING)
-                // An approval is flagged by what the call is, whatever any description says or whether one does.
-                if (transaction.meaning is DappCallMeaning.TokenApproval || ClearSignFormatter.grantsApproval(transaction.data)) {
-                    add(APPROVAL_NOTE)
-                }
+                addAll(callWarnings(transaction.meaning, transaction.data, token, review.address, review.testAddresses))
+
             },
             refusal = review.refusal?.let { refusal ->
                 review.safeTxRefusal?.takeIf { refusal == DappSignRefusal.SAFE_TX_REFUSED }
@@ -1056,6 +1057,36 @@ class DappTransactionViewModel(
 
         fun refusalLine(refusal: DappSignRefusal): String = DappRequestViewModel.refusalLine(refusal)
 
+        /** [meaning] in D6's words, sent by [sender] (the account), [token] its contract as a built-in token. */
+        private fun tokenCallText(meaning: DappCallMeaning.TokenCallOn, token: Token?, sender: Address) =
+            TokenCallText(meaning.contract, meaning.call, token?.let { DecodingToken(it) }, sender, "this account", APPROVAL_NOTE)
+
+        /**
+         * D6's warnings for a call of [transaction]'s kind, sent by [sender]: an approval flagged once, by what the
+         * call is (a withdrawn operator approval grants none), a call this app reads in its own words; and each
+         * address a testing site uses as a bad actor ([testAddresses]).
+         */
+        fun callWarnings(
+            meaning: DappCallMeaning,
+            data: ByteArray,
+            token: Token?,
+            sender: Address,
+            testAddresses: Map<Address, eth.serotine.domain.model.KnownTestAddress>,
+        ): List<String> = buildList {
+            if (meaning is DappCallMeaning.TokenCallOn) {
+                addAll(tokenCallText(meaning, token, sender).warnings)
+            } else if (meaning is DappCallMeaning.TokenApproval || ClearSignFormatter.grantsApproval(data)) {
+                // An approval is flagged by what the call is, whatever any description says or whether one does.
+                add(APPROVAL_NOTE)
+            }
+            testAddresses.forEach { (address, known) -> add(testAddressLine(address, known)) }
+        }
+
+        /** [address], one a testing site uses as a bad actor in its demos ([known]), in a warning. */
+        fun testAddressLine(address: eth.serotine.domain.model.Address, known: eth.serotine.domain.model.KnownTestAddress) =
+            "${Eip55.format(address)} is the address ${known.site} uses as ${known.role} in its demos of malicious " +
+                "requests. Never send it anything of value."
+
         /** An on-chain approval of a Safe transaction this call does not hold: what it approves is not known here. */
         const val APPROVE_HASH_WARNING = "This approves, on chain and for good, a Safe transaction Punicus cannot " +
             "see: only its hash is in the call, so neither what it does nor the Safe refusals can be checked. Find " +
@@ -1067,7 +1098,7 @@ class DappTransactionViewModel(
             else -> "${amount.toDecimal()} units of the token at $address"
         }
 
-        fun meaningLine(meaning: DappCallMeaning, token: Token?): String? = when (meaning) {
+        fun meaningLine(meaning: DappCallMeaning, token: Token?, sender: Address = Address.ZERO): String? = when (meaning) {
             DappCallMeaning.Payment -> "A payment of its value to the recipient."
             is DappCallMeaning.TokenTransfer -> "A transfer of " +
                 "${amountOf(meaning.amount, token, Eip55.format(meaning.token))} to ${Eip55.format(meaning.recipient)}."
@@ -1076,6 +1107,7 @@ class DappTransactionViewModel(
             is DappCallMeaning.SafeExecution -> "Executes a transaction of the Safe ${Eip55.format(meaning.safe)} that " +
                 "its owners signed: the Safe runs it now, at its nonce then. What it does is decoded below. This " +
                 "account pays the fee."
+            is DappCallMeaning.TokenCallOn -> tokenCallText(meaning, token, sender).sentence
             is DappCallMeaning.SafeExecutionNotDecoded -> "Calls execTransaction on ${Eip55.format(meaning.safe)}, " +
                 "but its data is not exactly that function's: the Safe would still run a transaction from it, which " +
                 "Punicus cannot read."
@@ -1085,7 +1117,7 @@ class DappTransactionViewModel(
             is DappCallMeaning.NotDecoded -> null
         }
 
-        fun meaningFields(meaning: DappCallMeaning, token: Token?): List<SignInField> = when (meaning) {
+        fun meaningFields(meaning: DappCallMeaning, token: Token?, sender: Address = Address.ZERO): List<SignInField> = when (meaning) {
             is DappCallMeaning.TokenTransfer -> listOf(
                 SignInField("Token", token?.let { "${it.symbol} · ${Eip55.format(meaning.token)}" }
                     ?: "${Eip55.format(meaning.token)} · not in the built-in token list"),
@@ -1104,6 +1136,8 @@ class DappTransactionViewModel(
             )
             is DappCallMeaning.SafeApproveHash -> listOf(SignInField("Safe transaction hash", "0x${meaning.hash.hex}"))
             is DappCallMeaning.SafeExecutionNotDecoded -> emptyList()
+            is DappCallMeaning.TokenCallOn -> tokenCallText(meaning, token, sender)
+                .fields.map { (label, value) -> SignInField(label, value) }
             DappCallMeaning.Payment -> emptyList()
         }
     }

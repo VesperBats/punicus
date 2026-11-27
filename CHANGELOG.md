@@ -12,6 +12,15 @@ and issues of this repository.
 
 ### Added
 
+- Requests from public wallet-testing sites are recognised: MetaMask's test
+  dApp and Reown's sample dApp (both over WalletConnect) and Walletbeat's
+  test playground. A known test signature says which test it is, byte for
+  byte; the addresses MetaMask's test dApp uses as bad actors in its
+  malicious demos are named in red. Token calls beyond `transfer` and
+  `approve` are now decoded on dApp transactions and Safe transactions:
+  `transferFrom`, `increaseAllowance`, `setApprovalForAll` (an approval of a
+  whole NFT collection, warned about loudly), and NFT and ERC-1155 transfers.
+
 - What Safe{Wallet} asks over WalletConnect is decoded by default: a Safe
   transaction to sign (`SafeTx`) shows what it does as the Safe's own screen
   does (a payment, a token or an NFT sent, an approval, a change of owners or
