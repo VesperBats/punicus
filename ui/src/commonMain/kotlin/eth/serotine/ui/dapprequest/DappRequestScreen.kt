@@ -54,6 +54,9 @@ const val DAPP_REQUEST_REFUSE_TAG = "dapp-request-refuse"
 /** Test tag of the line naming a per-app address's site, for UI tests. */
 const val DAPP_REQUEST_PER_APP_TAG = "dapp-request-per-app"
 
+/** Test tag of the line naming a known test request, for UI tests. */
+const val DAPP_REQUEST_KNOWN_TEST_TAG = "dapp-request-known-test"
+
 /** Test tag of D5's every-field box, for UI tests. */
 const val DAPP_REQUEST_FIELDS_TAG = "dapp-request-fields"
 
@@ -181,6 +184,14 @@ fun DappRequestScreen(
                 }
             }
             Text(state.network, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            state.knownTest?.let {
+                Text(
+                    it,
+                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag(DAPP_REQUEST_KNOWN_TEST_TAG),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
 
             if (state.typed) {
                 TypedDataSections(state, onRetrace)

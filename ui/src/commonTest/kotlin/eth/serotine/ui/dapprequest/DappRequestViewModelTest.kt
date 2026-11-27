@@ -508,6 +508,19 @@ class DappRequestViewModelTest {
     }
 
     @Test
+    fun aKnownTestSignatureIsNamedAsOne() = runTest {
+        val walletbeat = "This is a safe test message for educational purposes only. It does not authorize any " +
+            "transactions or actions."
+        requests.waiting.value = listOf(request(12, walletbeat))
+        val state = viewModel(12).uiState.value
+        assertEquals(
+            "A known test request: Walletbeat's test playground's \"Simple Test Message\", byte for byte. Any site " +
+                "can send the same, so this says what it is, not who is asking.",
+            state.knownTest,
+        )
+    }
+
+    @Test
     fun aPermitIsShownAsTheApprovalItIsWithItsDomainAndEveryField() = runTest {
         requests.waiting.value = listOf(permit(3))
         val vm = viewModel(3)

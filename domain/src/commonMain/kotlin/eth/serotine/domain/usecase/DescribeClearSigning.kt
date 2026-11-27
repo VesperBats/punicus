@@ -189,6 +189,6 @@ class DescribeClearSigning(
         const val BINDING_TIMEOUT_MS = 30_000L
 
         /** ERC-20 `transfer` and `approve`, which [Erc20] decodes: never described by a descriptor. */
-        val CLAIMED_SELECTORS = setOf("0xa9059cbb", "0x095ea7b3")
+        val CLAIMED_SELECTORS = setOf("0xa9059cbb", "0x095ea7b3") + eth.serotine.domain.model.TokenCalls.SELECTORS
     }
 }

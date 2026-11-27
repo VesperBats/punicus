@@ -36,6 +36,7 @@ class DappTransactionRequest(
             callData.isEmpty() -> DappCallMeaning.Payment
             else -> Erc20.transferOf(callData)?.let { DappCallMeaning.TokenTransfer(to, it.to, it.amount) }
                 ?: Erc20.approveOf(callData)?.let { DappCallMeaning.TokenApproval(to, it.spender, it.amount) }
+                ?: TokenCalls.of(callData)?.let { DappCallMeaning.TokenCallOn(to, it) }
                 ?: SafeExecCall.of(callData)?.let { DappCallMeaning.SafeExecution(to, it) }
                 // On chain the Safe still runs one it does not read as exactly: trailing bytes, any offset.
                 ?: DappCallMeaning.SafeExecutionNotDecoded(to).takeIf { SafeExecCall.isExecTransaction(callData) }
@@ -89,6 +90,9 @@ sealed interface DappCallMeaning {
      * transaction whose `safeTxHash` is [hash]. What that transaction does is not in the call.
      */
     data class SafeApproveHash(val safe: Address, val hash: Digest) : DappCallMeaning
+
+    /** Another call of the token contract at [contract] ([TokenCalls]): NFTs, ERC-1155, `transferFrom`, approvals. */
+    data class TokenCallOn(val contract: Address, val call: TokenCall) : DappCallMeaning
 
     /** A call this app does not decode, [selector] its first four bytes as hex (null with fewer). */
     data class NotDecoded(val selector: String?) : DappCallMeaning

@@ -496,6 +496,7 @@ internal val dappTransactionScreenPreviews: List<ScreenPreview> = listOf(
     ScreenPreview("safe-execution") { DappTransactionSafeExecutionPreview() },
     ScreenPreview("safe-execution-dark") { DappTransactionSafeExecutionDarkPreview() },
     ScreenPreview("safe-approve-hash") { DappTransactionSafeApproveHashPreview() },
+    ScreenPreview("approval-for-all") { DappTransactionApprovalForAllPreview() },
 )
 
 @Preview
@@ -625,3 +626,34 @@ private val safeApproveHash = safeExecution.copy(
 @Preview
 @Composable
 private fun DappTransactionSafeApproveHashPreview() = DappTransactionPreview(safeApproveHash)
+
+// MetaMask's test dApp's malicious demo: setApprovalForAll to its malicious operator, on a collection.
+private val approvalForAllMeaning = eth.serotine.domain.model.DappCallMeaning.TokenCallOn(
+    eth.serotine.domain.model.Address.of("0xbba60aa8144579e07c6db64121b0f608ab6f0c89"),
+    eth.serotine.domain.model.TokenCall.ApprovalForAll(
+        eth.serotine.domain.model.Address.of("0xb85492afc686d5ca405e3cd4f50b05d358c75ede"),
+        approved = true,
+    ),
+)
+
+private val approvalForAll = payment.copy(
+    to = "0xbBa60AA8144579E07c6db64121b0F608AB6F0C89",
+    value = "0 ETH (testnet)",
+    meaning = DappTransactionViewModel.meaningLine(approvalForAllMeaning, null),
+    meaningFields = DappTransactionViewModel.meaningFields(approvalForAllMeaning, null),
+    dataHex = "a22cb465000000000000000000000000b85492afc686d5ca405e3cd4f50b05d358c75ede" +
+        "0000000000000000000000000000000000000000000000000000000000000001",
+    dataSize = "68 bytes",
+    warnings = listOf(
+        "This hands over the whole collection: the operator may take every NFT of it that this account holds, now " +
+            "and in future. Phishing sites ask for exactly this. Approve only a marketplace you know.",
+        DappTransactionViewModel.testAddressLine(
+            eth.serotine.domain.model.Address.of("0xb85492afc686d5ca405e3cd4f50b05d358c75ede"),
+            eth.serotine.domain.model.KnownTestAddress(eth.serotine.domain.model.KnownTestRequests.METAMASK, "a malicious operator"),
+        ),
+    ),
+)
+
+@Preview
+@Composable
+private fun DappTransactionApprovalForAllPreview() = DappTransactionPreview(approvalForAll)

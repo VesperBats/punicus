@@ -61,6 +61,12 @@ sealed interface SafeTxAction {
         SafeTxAction
 
     /**
+     * Another call of a token contract at [contract], decoded exactly ([TokenCalls]): a `transferFrom`, an
+     * allowance increased, an operator approved for a whole collection, an NFT sent with data, ERC-1155 transfers.
+     */
+    data class TokenCallOn(val contract: Address, val call: TokenCall) : SafeTxAction
+
+    /**
      * A CoW Protocol order pre-signed, or its pre-signature withdrawn ([signed] false): GPv2Settlement's
      * `setPreSignature(orderUid, signed)`, called on its address with no ether, which is how a Safe signs an order.
      * The order's uid holds only its digest, its [owner] and its [validTo] (unix seconds): what it sells and buys
@@ -135,7 +141,13 @@ sealed interface SafeTxAction {
                 } else {
                     Erc20.transferOf(data)?.let { return TokenTransfer(to, it.to, it.amount) }
                     Erc20.approveOf(data)?.let { return TokenApproval(to, it.spender, it.amount) }
-                    nftTransfer(to, data)?.let { return it }
+                    TokenCalls.of(data)?.let { call ->
+                        return if (call is TokenCall.NftTransfer && call.dataSize == 0) {
+                            NftTransfer(to, call.from, call.to, call.tokenId)
+                        } else {
+                            TokenCallOn(to, call)
+                        }
+                    }
                     if (to == TypedDataMeaning.GPV2_SETTLEMENT) preSignature(data)?.let { return it }
                 }
             }
@@ -145,22 +157,10 @@ sealed interface SafeTxAction {
             return ContractCall(to, value, selector, data.size)
         }
 
-        private val SAFE_TRANSFER_FROM = AbiWords.selector("safeTransferFrom(address,address,uint256)")
         private val SET_PRE_SIGNATURE = AbiWords.selector("setPreSignature(bytes,bool)")
 
         // A CoW order's uid: its digest (32 bytes), its owner (20) and its validTo (4).
         private const val ORDER_UID_SIZE = 56
-
-        /** `safeTransferFrom(from, to, tokenId)` of the contract at [contract], exactly; null for anything else. */
-        private fun nftTransfer(contract: Address, data: ByteArray): NftTransfer? {
-            val (from, to, id) = AbiWords.staticArguments(data, SAFE_TRANSFER_FROM, 3) ?: return null
-            return NftTransfer(
-                contract,
-                AbiWords.address(from) ?: return null,
-                AbiWords.address(to) ?: return null,
-                AbiWords.uint(id),
-            )
-        }
 
         /**
          * `setPreSignature(orderUid, signed)`, exactly: the selector, the uid's offset (two words), the bool, the

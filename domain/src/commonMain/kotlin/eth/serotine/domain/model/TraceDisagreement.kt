@@ -49,6 +49,7 @@ data class TraceClaims(
             DappCallMeaning.Payment -> TraceClaims(emptySet(), currency = true, addresses = setOf(to), grantsRight = false)
             is DappCallMeaning.TokenTransfer -> TraceClaims(setOf(meaning.token), false, setOf(meaning.recipient), false)
             is DappCallMeaning.TokenApproval -> TraceClaims(setOf(meaning.token), false, setOf(meaning.spender), true)
+            is DappCallMeaning.TokenCallOn -> meaning.call.claims(meaning.contract)
             // An Execute is traced as the Safe's own call, against ofSafeAction's claims; the outer call has none.
             is DappCallMeaning.SafeExecution, is DappCallMeaning.SafeExecutionNotDecoded,
             is DappCallMeaning.SafeApproveHash, is DappCallMeaning.NotDecoded -> null
@@ -68,6 +69,7 @@ data class TraceClaims(
             // It moves nothing and grants nothing: whatever the trace finds is a disagreement.
             is SafeTxAction.SettingsChange, SafeTxAction.Rejection -> TraceClaims(emptySet(), false, emptySet(), false)
             is SafeTxAction.NftTransfer -> TraceClaims(setOf(action.contract), false, setOf(action.to), false)
+            is SafeTxAction.TokenCallOn -> action.call.claims(action.contract)
             is SafeTxAction.CowPreSignature, is SafeTxAction.Batch,
             is SafeTxAction.ContractCall, is SafeTxAction.DelegateCall -> null
         }
@@ -212,4 +214,14 @@ object TraceDisagreements {
         }
         return credits.filter { (key, credit) -> credit > (debits[key] ?: UInt256.ZERO) }.keys.toList()
     }
+}
+
+/** What a [TokenCall] on [contract] claims: the contract's tokens moved to, or approved for, the address it names. */
+internal fun TokenCall.claims(contract: Address): TraceClaims = when (this) {
+    is TokenCall.TransferFrom -> TraceClaims(setOf(contract), false, setOf(from, to), false)
+    is TokenCall.AllowanceIncrease -> TraceClaims(setOf(contract), false, setOf(spender), true)
+    is TokenCall.ApprovalForAll -> TraceClaims(setOf(contract), false, setOf(operator), approved)
+    is TokenCall.NftTransfer -> TraceClaims(setOf(contract), false, setOf(from, to), false)
+    is TokenCall.MultiTokenTransfer -> TraceClaims(setOf(contract), false, setOf(from, to), false)
+    is TokenCall.MultiTokenBatchTransfer -> TraceClaims(setOf(contract), false, setOf(from, to), false)
 }

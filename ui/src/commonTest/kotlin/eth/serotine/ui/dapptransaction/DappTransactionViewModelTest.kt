@@ -210,6 +210,19 @@ class DappTransactionViewModelTest {
     }
 
     @Test
+    fun metamasksMaliciousApprovalForAllDemoIsDecodedAndItsOperatorNamed() = runTest {
+        val data = ("a22cb465000000000000000000000000b85492afc686d5ca405e3cd4f50b05d358c75ede" +
+            "0000000000000000000000000000000000000000000000000000000000000001").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        val collection = Address.of("0xbba60aa8144579e07c6db64121b0f608ab6f0c89")
+        requests.waiting.value = listOf(request(11, DappTransactionRequest(held.address, collection, UInt256.ZERO, data, null)))
+        val state = viewModel(11).uiState.value
+        assertTrue(state.meaning!!.contains("take every NFT of the collection"), state.meaning)
+        assertTrue(state.warnings.any { it.startsWith("This hands over the whole collection") }, "${state.warnings}")
+        assertTrue(state.warnings.any { it.contains("MetaMask's test dApp uses as a malicious operator") }, "${state.warnings}")
+        assertFalse(DappTransactionViewModel.NOT_DECODED in state.warnings)
+    }
+
+    @Test
     fun anApproveHashIsNamedAndWarnedAbout() = runTest {
         val data = "d4d9bdcd".chunked(2).map { it.toInt(16).toByte() }.toByteArray() + ByteArray(32) { 9 }
         requests.waiting.value = listOf(request(10, DappTransactionRequest(held.address, safe, UInt256.ZERO, data, null)))

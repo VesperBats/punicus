@@ -233,6 +233,17 @@ internal fun safeTxActionItem(
             "The collection's own safeTransferFrom (ERC-721): its name is the contract's claim and not shown here.",
         ),
     )
+    is SafeTxAction.TokenCallOn -> {
+        val known = tokens.firstOrNull { it.token.address == action.contract }?.token
+        val text = TokenCallText(action.contract, action.call, known, "the Safe")
+        SafeTxActionItem(
+            title = text.title,
+            addresses = text.fields.filter { (_, value) -> value.startsWith("0x") && value.length == 42 }
+                .map { (label, value) -> ActionAddress(label, value) },
+            notes = listOf(text.sentence),
+            warning = text.warning,
+        )
+    }
     is SafeTxAction.CowPreSignature -> SafeTxActionItem(
         title = if (action.signed) "Sign a CoW Protocol order" else "Cancel a CoW Protocol order's signature",
         addresses = listOf(

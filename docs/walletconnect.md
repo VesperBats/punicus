@@ -586,6 +586,41 @@ SudoPolicy, no end, message signing, the generic-policy fallback. It is
 signable, with those warnings; whether to refuse an unlimited grant is the
 owner's to decide.
 
+### Testing with public test dApps
+
+Public wallet-testing sites let a user see how a wallet treats ordinary and
+malicious requests. Two connect over WalletConnect and so reach Punicus:
+MetaMask's test dApp (metamask.github.io/test-dapp, through its WalletConnect
+button) and Reown's sample dApp (react-app.walletconnect.com). Walletbeat's
+test playground (walletbeat.eth.limo/test/) connects to browser wallets only,
+so it cannot reach Punicus; its requests are recognised anyway, for a site
+that sends the same.
+
+- **A known test request is named, by its exact content**
+  (`KnownTestRequests`): MetaMask's and Reown's Ether Mail (EIP-712's own
+  example) and Walletbeat's "EIP-712 Test Signature" (on any chain), and
+  their test messages for `personal_sign`. The line says it is that test,
+  byte for byte, and that any site can send the same: it says what the
+  request is, never who asks. What it lets someone do is still shown as for
+  any other request.
+- **The addresses MetaMask's test dApp uses as bad actors** in its demos of
+  malicious requests (a recipient, a spender, an operator, two contracts) are
+  named as such on D6, in the error colour, wherever a transaction sends to
+  them or names them.
+- **The token calls those sites send are decoded**, on D6 and screen 17
+  (`TokenCalls`): `transferFrom` (ERC-20's and ERC-721's), `increaseAllowance`
+  and `setApprovalForAll` (each an approval, flagged; an operator approved for
+  a whole collection warned about loudly), ERC-721's `safeTransferFrom`, with
+  data or not, and ERC-1155's `safeTransferFrom` and `safeBatchTransferFrom`.
+  These selectors are the hand-written decoder's: no descriptor describes
+  them.
+- **What those sites ask that Punicus refuses, by its rules:** `eth_sign`;
+  `eth_signTypedData` and `_v3` and `wallet_sendCalls` (EIP-5792 batches),
+  outside the closed method list; a `personal_sign` with a third parameter
+  (MetaMask's test dApp sends a password), which is not applied and so is
+  refused (Myotis #314); a contract deployment, a transaction with no `to`;
+  and `wallet_watchAsset`.
+
 ### Transactions (`eth_sendTransaction`)
 
 - **The request's fields are applied or refused, field by field, never

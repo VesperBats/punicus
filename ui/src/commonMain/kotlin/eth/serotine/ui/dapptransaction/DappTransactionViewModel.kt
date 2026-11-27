@@ -76,6 +76,7 @@ import eth.serotine.ui.components.notSignedText
 import eth.serotine.ui.components.safeTxRefusalText
 import eth.serotine.ui.components.DappSafeTxSection
 import eth.serotine.ui.components.dappSafeTxSection
+import eth.serotine.ui.components.TokenCallText
 import eth.serotine.domain.model.SafeTxAction
 import eth.serotine.domain.usecase.ObserveSafe
 import eth.serotine.domain.usecase.SafeReading
@@ -889,6 +890,11 @@ class DappTransactionViewModel(
                 review.warnings.filterNot { it == DappSignWarning.NOT_DECODED }.sorted()
                     .forEach { add(DappRequestViewModel.warningLine(it, review.perApp)) }
                 if (transaction.meaning is DappCallMeaning.SafeApproveHash) add(APPROVE_HASH_WARNING)
+                (transaction.meaning as? DappCallMeaning.TokenCallOn)?.let { meaning ->
+                    TokenCallText(meaning.contract, meaning.call, token, "this account").warning?.let(::add)
+                }
+                // An address a testing site uses as a bad actor in its demos, said as such.
+                review.testAddresses.forEach { (address, known) -> add(testAddressLine(address, known)) }
                 // An approval is flagged by what the call is, whatever any description says or whether one does.
                 if (transaction.meaning is DappCallMeaning.TokenApproval || ClearSignFormatter.grantsApproval(transaction.data)) {
                     add(APPROVAL_NOTE)
@@ -1056,6 +1062,11 @@ class DappTransactionViewModel(
 
         fun refusalLine(refusal: DappSignRefusal): String = DappRequestViewModel.refusalLine(refusal)
 
+        /** [address], one a testing site uses as a bad actor in its demos ([known]), in a warning. */
+        fun testAddressLine(address: eth.serotine.domain.model.Address, known: eth.serotine.domain.model.KnownTestAddress) =
+            "${Eip55.format(address)} is the address ${known.site} uses as ${known.role} in its demos of malicious " +
+                "requests. Never send it anything of value."
+
         /** An on-chain approval of a Safe transaction this call does not hold: what it approves is not known here. */
         const val APPROVE_HASH_WARNING = "This approves, on chain and for good, a Safe transaction Punicus cannot " +
             "see: only its hash is in the call, so neither what it does nor the Safe refusals can be checked. Find " +
@@ -1076,6 +1087,7 @@ class DappTransactionViewModel(
             is DappCallMeaning.SafeExecution -> "Executes a transaction of the Safe ${Eip55.format(meaning.safe)} that " +
                 "its owners signed: the Safe runs it now, at its nonce then. What it does is decoded below. This " +
                 "account pays the fee."
+            is DappCallMeaning.TokenCallOn -> TokenCallText(meaning.contract, meaning.call, token, "this account").sentence
             is DappCallMeaning.SafeExecutionNotDecoded -> "Calls execTransaction on ${Eip55.format(meaning.safe)}, " +
                 "but its data is not exactly that function's: the Safe would still run a transaction from it, which " +
                 "Punicus cannot read."
@@ -1104,6 +1116,8 @@ class DappTransactionViewModel(
             )
             is DappCallMeaning.SafeApproveHash -> listOf(SignInField("Safe transaction hash", "0x${meaning.hash.hex}"))
             is DappCallMeaning.SafeExecutionNotDecoded -> emptyList()
+            is DappCallMeaning.TokenCallOn -> TokenCallText(meaning.contract, meaning.call, token, "this account")
+                .fields.map { (label, value) -> SignInField(label, value) }
             DappCallMeaning.Payment -> emptyList()
         }
     }
